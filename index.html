@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LESync Property Management System</title>
+    <meta name="description" content="Enterprise Property Management System & ERP by LE Innova Automations, featuring configurable multi-property branding, Front Office, Housekeeping, F&B, Banquets, Inventory, Accounts, and Global Report Center." />
+    <meta name="author" content="LE Innova Automations" />
+    <meta property="og:title" content="LESync Property Management System" />
+    <meta property="og:description" content="Enterprise Property Management System & ERP by LE Innova Automations, featuring configurable multi-property branding, Front Office, Housekeeping, F&B, Banquets, Inventory, Accounts, and Global Report Center." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Safeguard window.fetch against "Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        try {
+          var _origFetch = window.fetch;
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch') ||
+                     (window.Window && Object.getOwnPropertyDescriptor(window.Window.prototype, 'fetch')) ||
+                     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(window), 'fetch');
+          if (!desc || !desc.set) {
+            try {
+              Object.defineProperty(window, 'fetch', {
+                get: function() { return _origFetch; },
+                set: function(fn) { _origFetch = fn; },
+                configurable: true,
+                enumerable: true
+              });
+            } catch (e1) {
+              try {
+                var proto = Object.getPrototypeOf(window);
+                if (proto) {
+                  Object.defineProperty(proto, 'fetch', {
+                    get: function() { return _origFetch; },
+                    set: function(fn) { _origFetch = fn; },
+                    configurable: true,
+                    enumerable: true
+                  });
+                }
+              } catch (e2) {}
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-[#F3F4F6] text-gray-900 antialiased font-sans">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

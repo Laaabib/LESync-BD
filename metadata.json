@@ -1,0 +1,7 @@
+{
+  "name": "LESync Property Management System",
+  "description": "Enterprise Property Management System & ERP by LE Innova Automations, featuring configurable multi-property branding, Front Office, Housekeeping, F&B, Banquets, Inventory, Accounts, and Global Report Center.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

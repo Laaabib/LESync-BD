@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && request.auth.token.email == 'teeforme002@gmail.com')
+      );
+    }
+
+    // Validation Blueprint for Reservations
+    function isValidReservation(data) {
+      return data.keys().hasAll([
+        'id', 'reservationNumber', 'guestId', 'guestName',
+        'roomTypeId', 'roomTypeName', 'arrivalDate', 'departureDate',
+        'status', 'rate', 'totalEstimatedAmount'
+      ]) &&
+      data.id is string && data.id.size() <= 128 &&
+      data.reservationNumber is string && data.reservationNumber.size() <= 50 &&
+      data.guestId is string && data.guestId.size() <= 128 &&
+      data.guestName is string && data.guestName.size() >= 1 && data.guestName.size() <= 150 &&
+      data.roomTypeId is string && data.roomTypeId.size() <= 128 &&
+      data.roomTypeName is string && data.roomTypeName.size() <= 100 &&
+      data.arrivalDate is string && data.arrivalDate.size() <= 15 &&
+      data.departureDate is string && data.departureDate.size() <= 15 &&
+      data.status in ['Confirmed', 'Unconfirmed', 'Checked-In', 'Checked-Out', 'Cancelled', 'No-Show'] &&
+      data.rate is number && data.rate >= 0 &&
+      data.totalEstimatedAmount is number && data.totalEstimatedAmount >= 0 &&
+      (!('customerType' in data) || data.customerType in ['Individual', 'Corporate']) &&
+      (!('companyName' in data) || (data.companyName is string && data.companyName.size() <= 200)) &&
+      (!('companyGstBin' in data) || (data.companyGstBin is string && data.companyGstBin.size() <= 60)) &&
+      (!('isGroupBooking' in data) || data.isGroupBooking is bool) &&
+      (!('groupName' in data) || (data.groupName is string && data.groupName.size() <= 200)) &&
+      (!('totalRoomsCount' in data) || (data.totalRoomsCount is number && data.totalRoomsCount >= 1)) &&
+      (!('allocatedRooms' in data) || (data.allocatedRooms is list && data.allocatedRooms.size() <= 50)) &&
+      (!('groupMembers' in data) || (data.groupMembers is list && data.groupMembers.size() <= 100));
+    }
+
+    // Reservations Collection Rules
+    match /reservations/{reservationId} {
+      allow get: if isSignedIn() && isValidId(reservationId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(reservationId) && isValidReservation(incoming());
+      allow update: if isSignedIn() && isValidId(reservationId) && isValidReservation(incoming()) && (
+        isAdmin() ||
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'assignedRoomId', 'assignedRoomNumber', 'allocatedRooms',
+          'depositAmount', 'paidAmount', 'specialRequests', 'updatedAt'
+        ])
+      );
+      allow delete: if isAdmin() && isValidId(reservationId);
+    }
+  }
+}
