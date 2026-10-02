@@ -47,7 +47,7 @@ export const QuickMenuBar: React.FC<QuickMenuBarProps> = ({
   const [activeReportModal, setActiveReportModal] = useState<FrontDeskReportType | null>(null);
   const [reportSearchQuery, setReportSearchQuery] = useState('');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   // Dynamic calculations from database
   const inHouseStays = useMemo(() => {
@@ -55,11 +55,14 @@ export const QuickMenuBar: React.FC<QuickMenuBarProps> = ({
   }, [db.stays]);
 
   const activeReservations = useMemo(() => {
-    return (db.reservations || []).filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed');
+    return (db.reservations || []).filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending');
   }, [db.reservations]);
 
   const todayArrivals = useMemo(() => {
-    return (db.reservations || []).filter(r => r.status === 'Confirmed' && r.arrivalDate <= todayStr);
+    return (db.reservations || []).filter(r => 
+      (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+      (r.arrivalDate === todayStr || r.arrivalDate <= todayStr)
+    );
   }, [db.reservations, todayStr]);
 
   const todayDepartures = useMemo(() => {
@@ -623,7 +626,7 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   if (!isOpen) return null;
 
@@ -661,7 +664,10 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
   });
 
   // Upcoming Check-In Report Data (Arrivals)
-  const arrivals = reservations.filter(r => r.status === 'Confirmed' && r.arrivalDate <= todayStr);
+  const arrivals = reservations.filter(r => 
+    (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+    (r.arrivalDate === todayStr || r.arrivalDate <= todayStr)
+  );
   const filteredArrivals = arrivals.filter(r => {
     return (
       r.guestName.toLowerCase().includes(search.toLowerCase()) ||
@@ -1222,7 +1228,16 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
                     {filteredArrivals.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="text-center py-8 text-gray-400">
-                          No pending arrivals remaining for today.
+                          <div className="space-y-2">
+                            <p>No pending arrivals remaining for today.</p>
+                            <button
+                              type="button"
+                              onClick={() => pmsService.reanchorArrivalsToToday()}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-md shadow-xs transition-colors cursor-pointer"
+                            >
+                              Sync / Re-Anchor Arrivals to Today ({todayStr})
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ) : (

@@ -94,6 +94,220 @@ export interface PmsDatabaseState {
   currentUser: User;
 }
 
+export function getOffsetDate(baseDateStr: string, offsetDays: number): string {
+  try {
+    const d = new Date(baseDateStr + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    return d.toISOString().split('T')[0];
+  } catch {
+    return baseDateStr;
+  }
+}
+
+export function getTodayString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getSeedPendingReservations(baseDate: string): Reservation[] {
+  const tomorrow = getOffsetDate(baseDate, 1);
+  const dayAfter = getOffsetDate(baseDate, 2);
+  const threeDaysLater = getOffsetDate(baseDate, 3);
+  const fourDaysLater = getOffsetDate(baseDate, 4);
+
+  return [
+    {
+      id: 'res-group-1',
+      reservationNumber: `RES-${baseDate.substring(0, 4)}-00460`,
+      guestId: 'gst-4',
+      guestName: 'Syed Ashraful Alam',
+      guestPhone: '+880 1713-998877',
+      guestEmail: 'alam.syed@apexholdings.com',
+      roomTypeId: 'rt-4',
+      roomTypeName: 'Family Deluxe (3 Rooms Allocated)',
+      assignedRoomId: 'rm-202',
+      assignedRoomNumber: '202, 206, 208',
+      arrivalDate: baseDate,
+      departureDate: threeDaysLater,
+      adults: 5,
+      children: 0,
+      status: 'Confirmed',
+      bookingSource: 'Corporate',
+      rate: 12500,
+      depositAmount: 45000,
+      paidAmount: 45000,
+      totalEstimatedAmount: 88500,
+      specialRequests: 'Group Delegation: 3 adjacent/same-floor rooms. Executive breakfast & boardroom access.',
+      createdBy: 'Front Desk - Tariqul',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      customerType: 'Corporate',
+      companyName: 'Apex Footwear Limited',
+      companyGstBin: 'BIN-003819201-0202',
+      companyContactPerson: 'Ms. Farhana Ahmed',
+      companyDesignation: 'Corporate Affairs & Events Director',
+      companyEmail: 'events@apexholdings.com',
+      companyPhone: '+880 1711-990011',
+      companyAddress: 'Apex Centre, 76/1 Gulshan Avenue, Dhaka-1212',
+      isGroupBooking: true,
+      groupName: 'Apex Footwear Annual Strategy Summit',
+      groupLeaderName: 'Mr. Syed Ashraful Alam',
+      groupLeaderPhone: '+880 1713-998877',
+      totalRoomsCount: 3,
+      groupMembers: [
+        { id: 'gm-1', name: 'Syed Ashraful Alam', phone: '+880 1713-998877', isLeader: true, assignedRoomNumber: '202' },
+        { id: 'gm-2', name: 'Tanvir Hossain', phone: '+880 1711-882233', assignedRoomNumber: '206' },
+        { id: 'gm-3', name: 'Dr. Kazi Mahfuzur', phone: '+880 1819-334455', assignedRoomNumber: '208' },
+        { id: 'gm-4', name: 'Farzana Chowdhury', phone: '+880 1912-556677' },
+        { id: 'gm-5', name: 'Rezaul Karim', phone: '+880 1715-443322' }
+      ],
+      allocatedRooms: [
+        {
+          id: 'alloc-1',
+          roomTypeId: 'rt-4',
+          roomTypeName: 'Family Deluxe',
+          roomId: 'rm-202',
+          roomNumber: '202',
+          guestName: 'Syed Ashraful Alam',
+          guestPhone: '+880 1713-998877',
+          adults: 2,
+          children: 0,
+          rate: 12500
+        },
+        {
+          id: 'alloc-2',
+          roomTypeId: 'rt-5',
+          roomTypeName: 'Deluxe Room',
+          roomId: 'rm-206',
+          roomNumber: '206',
+          guestName: 'Tanvir Hossain',
+          guestPhone: '+880 1711-882233',
+          adults: 2,
+          children: 0,
+          rate: 8500
+        },
+        {
+          id: 'alloc-3',
+          roomTypeId: 'rt-5',
+          roomTypeName: 'Deluxe Room',
+          roomId: 'rm-208',
+          roomNumber: '208',
+          guestName: 'Dr. Kazi Mahfuzur',
+          guestPhone: '+880 1819-334455',
+          adults: 1,
+          children: 0,
+          rate: 8500
+        }
+      ]
+    },
+    {
+      id: 'res-6',
+      reservationNumber: `RES-${baseDate.substring(0, 4)}-00456`,
+      guestId: 'gst-2',
+      guestName: 'Dr. Nusrat Jahan (Friend Ref)',
+      guestPhone: '+880 1819-456789',
+      roomTypeId: 'rt-5',
+      roomTypeName: 'Deluxe Room',
+      assignedRoomId: 'rm-103',
+      assignedRoomNumber: '103',
+      arrivalDate: baseDate,
+      departureDate: dayAfter,
+      adults: 2,
+      children: 0,
+      status: 'Confirmed',
+      bookingSource: 'Phone / Direct',
+      rate: 8500,
+      depositAmount: 5000,
+      paidAmount: 5000,
+      totalEstimatedAmount: 17000,
+      specialRequests: 'Arriving at 6:00 PM',
+      createdBy: 'Front Desk',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: 'res-7',
+      reservationNumber: `RES-${baseDate.substring(0, 4)}-00457`,
+      guestId: 'gst-1',
+      guestName: 'Engr. Mohammad Rahman (Colleague)',
+      guestPhone: '+880 1711-234567',
+      roomTypeId: 'rt-4',
+      roomTypeName: 'Family Deluxe',
+      assignedRoomId: 'rm-203',
+      assignedRoomNumber: '203',
+      arrivalDate: baseDate,
+      departureDate: threeDaysLater,
+      adults: 3,
+      children: 1,
+      status: 'Confirmed',
+      bookingSource: 'Corporate',
+      rate: 12500,
+      depositAmount: 10000,
+      paidAmount: 10000,
+      totalEstimatedAmount: 37500,
+      specialRequests: 'Adjacent to room 201 if possible',
+      createdBy: 'Front Desk',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: 'res-8',
+      reservationNumber: `RES-${baseDate.substring(0, 4)}-00458`,
+      guestId: 'gst-3',
+      guestName: 'Mrs. Sadia Islam & Family',
+      guestPhone: '+880 1817-654321',
+      guestEmail: 'sadia.islam@dhakatraders.com',
+      roomTypeId: 'rt-5',
+      roomTypeName: 'Deluxe Room',
+      assignedRoomId: 'rm-105',
+      assignedRoomNumber: '105',
+      arrivalDate: tomorrow,
+      departureDate: threeDaysLater,
+      adults: 2,
+      children: 1,
+      status: 'Confirmed',
+      bookingSource: 'Website Engine',
+      rate: 8500,
+      depositAmount: 8500,
+      paidAmount: 8500,
+      totalEstimatedAmount: 17000,
+      specialRequests: 'Upper floor, peaceful garden view, arrival around 2 PM',
+      createdBy: 'Online Booking',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: 'res-9',
+      reservationNumber: `RES-${baseDate.substring(0, 4)}-00459`,
+      guestId: 'gst-5',
+      guestName: 'Mr. David Miller',
+      guestPhone: '+44 7700 900555',
+      guestEmail: 'd.miller@londonconsult.co.uk',
+      roomTypeId: 'rt-3',
+      roomTypeName: 'Honeymoon Suite',
+      assignedRoomId: 'rm-302',
+      assignedRoomNumber: '302',
+      arrivalDate: dayAfter,
+      departureDate: fourDaysLater,
+      adults: 2,
+      children: 0,
+      status: 'Confirmed',
+      bookingSource: 'Booking.com',
+      rate: 15000,
+      depositAmount: 15000,
+      paidAmount: 15000,
+      totalEstimatedAmount: 30000,
+      specialRequests: 'Late evening check-in, airport pickup requested',
+      createdBy: 'Channel Manager',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ];
+}
+
 const DEFAULT_SETTINGS: SystemSetting = {
   resortName: 'Grand Horizon Resort & Convention Center',
   address: '100 Marina Boulevard, Bayfront District',
@@ -110,8 +324,8 @@ const DEFAULT_SETTINGS: SystemSetting = {
   requireDepositForReservation: true,
   autoNightAuditEnabled: false,
   autoNightAuditTime: '06:00',
-  currentBusinessDate: typeof window !== 'undefined' ? new Date().toISOString().split('T')[0] : '2026-09-24',
-  lastNightAuditDate: '2026-09-23',
+  currentBusinessDate: typeof window !== 'undefined' ? getTodayString() : getTodayString(),
+  lastNightAuditDate: undefined,
   folioPrefix: 'FOL-',
   invPrefix: 'INV-',
   resPrefix: 'RES-',
@@ -1616,17 +1830,70 @@ export function getInitialDatabase(): PmsDatabaseState {
       if (!Array.isArray(parsed.menuModifiers) || parsed.menuModifiers.length === 0) parsed.menuModifiers = SEED_MENU_MODIFIERS;
       if (!Array.isArray(parsed.menuCombos) || parsed.menuCombos.length === 0) parsed.menuCombos = SEED_MENU_COMBOS;
       if (!Array.isArray(parsed.menuPriceHistories) || parsed.menuPriceHistories.length === 0) parsed.menuPriceHistories = SEED_PRICE_HISTORIES;
+
+      // Auto-heal / reconcile pending arrivals and operational stays:
+      // Guarantee that valid pending arrivals exist for the current business date
+      const realToday = getTodayString();
+      if (!parsed.settings) parsed.settings = DEFAULT_SETTINGS;
+      if (!parsed.settings.currentBusinessDate || parsed.settings.currentBusinessDate < '2026-09-01' || parsed.settings.currentBusinessDate > '2028-01-01') {
+        parsed.settings.currentBusinessDate = realToday;
+      }
+      const curBizDate = parsed.settings.currentBusinessDate;
+
+      const confirmedRes = Array.isArray(parsed.reservations)
+        ? parsed.reservations.filter((r: any) => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending')
+        : [];
+      
+      const todayArrivalsCount = confirmedRes.filter((r: any) => r.arrivalDate === curBizDate).length;
+
+      // If there are NO pending arrivals scheduled for current business date, heal them immediately
+      if (todayArrivalsCount === 0) {
+        if (confirmedRes.length >= 2) {
+          // Realign existing confirmed bookings so at least 2-3 arrive today, and remaining upcoming
+          confirmedRes.forEach((r: any, idx: number) => {
+            const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+            r.arrivalDate = getOffsetDate(curBizDate, offset);
+            r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+            r.updatedAt = new Date().toISOString();
+          });
+        } else {
+          // Inject standard seed pending arrivals for today and upcoming dates
+          const seedReservations = getSeedPendingReservations(curBizDate);
+          const existingIds = new Set((parsed.reservations || []).map((r: any) => r.id));
+          const toAdd = seedReservations.filter((r: any) => !existingIds.has(r.id));
+          parsed.reservations = [...(parsed.reservations || []), ...toAdd];
+        }
+      }
+
+      // Also ensure active in-house stays are not all expired/overdue from months ago
+      if (Array.isArray(parsed.stays) && parsed.stays.length > 0) {
+        const allExpired = parsed.stays.every((s: any) => s.expectedCheckOutAt && s.expectedCheckOutAt.split('T')[0] < curBizDate);
+        if (allExpired) {
+          parsed.stays.forEach((s: any, idx: number) => {
+            if (s.status === 'Active') {
+              s.checkInAt = idx === 3 ? `${getOffsetDate(curBizDate, -1)}T13:00:00Z` : `${curBizDate}T14:00:00Z`;
+              s.expectedCheckOutAt = idx === 3 ? `${curBizDate}T12:00:00Z` : `${getOffsetDate(curBizDate, 2 + (idx % 2))}T12:00:00Z`;
+            }
+          });
+        }
+      }
+
       return parsed;
     } catch {
       console.warn('Could not parse saved DB, resetting to defaults');
     }
   }
 
-  // Generate today's realistic operational data
-  const today = '2026-08-31';
-  const tomorrow = '2026-09-01';
-  const dayAfter = '2026-09-02';
-  const threeDaysLater = '2026-09-03';
+  // Generate today's realistic operational data dynamically based on the current business date
+  const now = new Date();
+  const today = typeof window !== 'undefined'
+    ? (DEFAULT_SETTINGS.currentBusinessDate || now.toISOString().split('T')[0])
+    : now.toISOString().split('T')[0];
+  const yesterday = getOffsetDate(today, -1);
+  const tomorrow = getOffsetDate(today, 1);
+  const dayAfter = getOffsetDate(today, 2);
+  const threeDaysLater = getOffsetDate(today, 3);
+  const fourDaysLater = getOffsetDate(today, 4);
 
   const reservations: Reservation[] = [
     {
@@ -1779,7 +2046,7 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomTypeName: 'Honeymoon Suite',
       assignedRoomId: 'rm-301',
       assignedRoomNumber: '301',
-      arrivalDate: today,
+      arrivalDate: yesterday,
       departureDate: threeDaysLater,
       adults: 2,
       children: 0,
@@ -1793,8 +2060,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       totalEstimatedAmount: 45000,
       specialRequests: 'Canopy bed decoration with red roses',
       createdBy: 'Kazi Mahfuzur Rahman',
-      createdAt: '2026-08-30T16:00:00Z',
-      updatedAt: '2026-08-31T16:20:00Z'
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     },
     {
       id: 'res-4',
@@ -1806,8 +2073,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomTypeName: 'Presidential Suite',
       assignedRoomId: 'rm-401',
       assignedRoomNumber: '401',
-      arrivalDate: today,
-      departureDate: tomorrow,
+      arrivalDate: yesterday,
+      departureDate: today,
       adults: 2,
       children: 0,
       status: 'Checked-In',
@@ -1893,8 +2160,60 @@ export function getInitialDatabase(): PmsDatabaseState {
       totalEstimatedAmount: 37500,
       specialRequests: 'Adjacent to room 201 if possible',
       createdBy: 'Front Desk',
-      createdAt: '2026-08-30T11:00:00Z',
-      updatedAt: '2026-08-30T11:00:00Z'
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: 'res-8',
+      reservationNumber: 'RES-2026-00458',
+      guestId: 'gst-3',
+      guestName: 'Mrs. Sadia Islam & Family',
+      guestPhone: '+880 1817-654321',
+      guestEmail: 'sadia.islam@dhakatraders.com',
+      roomTypeId: 'rt-5',
+      roomTypeName: 'Deluxe Room',
+      assignedRoomId: 'rm-105',
+      assignedRoomNumber: '105',
+      arrivalDate: tomorrow,
+      departureDate: threeDaysLater,
+      adults: 2,
+      children: 1,
+      status: 'Confirmed',
+      bookingSource: 'Website Engine',
+      rate: 8500,
+      depositAmount: 8500,
+      paidAmount: 8500,
+      totalEstimatedAmount: 17000,
+      specialRequests: 'Upper floor, peaceful garden view, arrival around 2 PM',
+      createdBy: 'Online Booking',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      id: 'res-9',
+      reservationNumber: 'RES-2026-00459',
+      guestId: 'gst-5',
+      guestName: 'Mr. David Miller',
+      guestPhone: '+44 7700 900555',
+      guestEmail: 'd.miller@londonconsult.co.uk',
+      roomTypeId: 'rt-3',
+      roomTypeName: 'Honeymoon Suite',
+      assignedRoomId: 'rm-302',
+      assignedRoomNumber: '302',
+      arrivalDate: dayAfter,
+      departureDate: fourDaysLater,
+      adults: 2,
+      children: 0,
+      status: 'Confirmed',
+      bookingSource: 'Booking.com',
+      rate: 15000,
+      depositAmount: 15000,
+      paidAmount: 15000,
+      totalEstimatedAmount: 30000,
+      specialRequests: 'Late evening check-in, airport pickup requested',
+      createdBy: 'Channel Manager',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     }
   ];
 
@@ -1908,8 +2227,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomId: 'rm-201',
       roomNumber: '201',
       roomTypeName: 'Family Deluxe',
-      checkInAt: '2026-08-31T14:30:00Z',
-      expectedCheckOutAt: '2026-09-03T12:00:00Z',
+      checkInAt: `${today}T14:30:00Z`,
+      expectedCheckOutAt: `${threeDaysLater}T12:00:00Z`,
       status: 'Active',
       folioId: 'fol-1',
       keyCardsIssued: 2,
@@ -1925,8 +2244,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomId: 'rm-102',
       roomNumber: '102',
       roomTypeName: 'Deluxe Room',
-      checkInAt: '2026-08-31T15:00:00Z',
-      expectedCheckOutAt: '2026-09-02T12:00:00Z',
+      checkInAt: `${today}T15:00:00Z`,
+      expectedCheckOutAt: `${dayAfter}T12:00:00Z`,
       status: 'Active',
       folioId: 'fol-2',
       keyCardsIssued: 2,
@@ -1941,8 +2260,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomId: 'rm-301',
       roomNumber: '301',
       roomTypeName: 'Honeymoon Suite',
-      checkInAt: '2026-08-31T16:20:00Z',
-      expectedCheckOutAt: '2026-09-03T12:00:00Z',
+      checkInAt: `${yesterday}T16:20:00Z`,
+      expectedCheckOutAt: `${threeDaysLater}T12:00:00Z`,
       status: 'Active',
       folioId: 'fol-3',
       keyCardsIssued: 2,
@@ -1957,8 +2276,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomId: 'rm-401',
       roomNumber: '401',
       roomTypeName: 'Presidential Suite',
-      checkInAt: '2026-08-31T13:00:00Z',
-      expectedCheckOutAt: '2026-09-01T12:00:00Z',
+      checkInAt: `${yesterday}T13:00:00Z`,
+      expectedCheckOutAt: `${today}T12:00:00Z`,
       status: 'Active',
       folioId: 'fol-4',
       keyCardsIssued: 3,
@@ -1973,8 +2292,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       roomId: 'rm-304',
       roomNumber: '304',
       roomTypeName: 'Royal Suite',
-      checkInAt: '2026-08-31T11:00:00Z',
-      expectedCheckOutAt: '2026-09-01T12:00:00Z',
+      checkInAt: `${today}T11:00:00Z`,
+      expectedCheckOutAt: `${tomorrow}T12:00:00Z`,
       status: 'Active',
       folioId: 'fol-5',
       keyCardsIssued: 1,

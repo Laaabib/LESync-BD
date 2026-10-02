@@ -70,11 +70,20 @@ export const RoomActionModal: React.FC<RoomActionModalProps> = ({
   }, [db.guests, activeStay]);
 
   const reservation = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    return (db.reservations || []).find(
-      r => r.status === 'Confirmed' && r.assignedRoomNumber === room.roomNumber && r.arrivalDate === todayStr
-    );
-  }, [db.reservations, room]);
+    const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    return (db.reservations || []).find(r => {
+      const isPending = r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending';
+      if (!isPending) return false;
+      const isDue = r.arrivalDate === todayStr || r.arrivalDate <= todayStr;
+      if (!isDue) return false;
+
+      if (r.assignedRoomId === room.id) return true;
+      if (r.assignedRoomNumber === room.roomNumber) return true;
+      if (r.assignedRoomNumber && r.assignedRoomNumber.split(',').map((s: string) => s.trim()).includes(room.roomNumber)) return true;
+      if (Array.isArray(r.allocatedRooms) && r.allocatedRooms.some((a: any) => a.roomId === room.id || a.roomNumber === room.roomNumber)) return true;
+      return false;
+    });
+  }, [db.reservations, db.settings, room]);
 
   const canAccessHousekeeping = useMemo(() => {
     return (

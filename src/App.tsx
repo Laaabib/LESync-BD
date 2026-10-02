@@ -908,7 +908,10 @@ export default function App() {
         </main>
 
         {/* 2.5 Mobile Bottom Navigation Bar for Remote Staff Operations */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-30 flex items-center justify-around px-2 text-slate-400 select-none shadow-2xl">
+        <nav
+          id="mobile-bottom-nav"
+          className="no-print print:hidden lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-30 flex items-center justify-around px-2 text-slate-400 select-none shadow-2xl"
+        >
           <button
             type="button"
             onClick={() => setActiveRoute('dashboard')}
@@ -1081,7 +1084,7 @@ export default function App() {
       {resortSyncNotice && (
         <div
           id="resort-live-sync-banner"
-          className="fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-700/80 animate-in fade-in slide-in-from-bottom-3 duration-200 max-w-md"
+          className="no-print print:hidden fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-700/80 animate-in fade-in slide-in-from-bottom-3 duration-200 max-w-md"
         >
           <span className="relative flex h-3 w-3 shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>

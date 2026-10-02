@@ -140,7 +140,151 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
   if (!isOpen) return null;
 
   const handlePrint = () => {
-    window.print();
+    const docElement = document.getElementById('printable-document');
+    if (!docElement) {
+      window.print();
+      return;
+    }
+
+    try {
+      // Create or reuse isolated iframe with standard desktop A4 viewport dimensions
+      let iframe = document.getElementById('lesync-print-iframe') as HTMLIFrameElement;
+      if (iframe) {
+        iframe.remove();
+      }
+      iframe = document.createElement('iframe');
+      iframe.id = 'lesync-print-iframe';
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = isThermal80mm ? '80mm' : '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = '0';
+      iframe.style.opacity = '0.001';
+      iframe.style.pointerEvents = 'none';
+      iframe.style.zIndex = '-9999';
+      document.body.appendChild(iframe);
+
+      const iframeDoc = iframe.contentWindow?.document || iframe.contentDocument;
+      if (!iframeDoc || !iframe.contentWindow) {
+        window.print();
+        return;
+      }
+
+      // Collect all stylesheets from main document
+      let stylesHtml = '';
+      document.querySelectorAll('style, link[rel="stylesheet"]').forEach((el) => {
+        stylesHtml += el.outerHTML;
+      });
+
+      const pageOrientation = isLandscape ? 'landscape' : 'portrait';
+      const pageMargin = isThermal80mm ? '2mm 3mm' : '6mm 6mm 6mm 6mm';
+      const pageSize = isThermal80mm ? '80mm auto' : `A4 ${pageOrientation}`;
+
+      iframeDoc.open();
+      iframeDoc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${getDocTitle()}</title>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            ${stylesHtml}
+            <style>
+              @page {
+                size: ${pageSize};
+                margin: ${pageMargin};
+              }
+              *, *::before, *::after {
+                box-sizing: border-box !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              html, body {
+                background: #ffffff !important;
+                background-color: #ffffff !important;
+                color: #0f172a !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+                visibility: visible !important;
+              }
+              .no-print, .print\\:hidden {
+                display: none !important;
+              }
+              #printable-document {
+                display: block !important;
+                position: static !important;
+                background: #ffffff !important;
+                background-color: #ffffff !important;
+                color: #0f172a !important;
+                width: 100% !important;
+                max-width: ${isThermal80mm ? '76mm' : '100%'} !important;
+                margin: 0 auto !important;
+                padding: ${isThermal80mm ? '2mm 3mm' : '0'} !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+              }
+              #voucher-card {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                border: 2px solid #0f172a !important;
+                border-radius: 4px !important;
+                background: #ffffff !important;
+                box-shadow: none !important;
+                padding: 14px 16px !important;
+                box-sizing: border-box !important;
+              }
+              .grid.grid-cols-2, .grid-cols-2 {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 16px !important;
+              }
+              table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+              }
+            </style>
+          </head>
+          <body>
+            <div id="printable-document" class="${docElement.className}">
+              ${docElement.innerHTML}
+            </div>
+          </body>
+        </html>
+      `);
+      iframeDoc.close();
+
+      const runPrint = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          window.print();
+        }
+      };
+
+      const images = Array.from(iframeDoc.images);
+      if (images.length === 0) {
+        setTimeout(runPrint, 250);
+      } else {
+        Promise.all(
+          images.map(img => img.complete ? Promise.resolve() : new Promise(res => { img.onload = res; img.onerror = res; }))
+        ).then(() => {
+          setTimeout(runPrint, 200);
+        }).catch(() => {
+          setTimeout(runPrint, 300);
+        });
+      }
+    } catch {
+      window.print();
+    }
   };
 
   const defaultSettings: SystemSetting = {
@@ -333,24 +477,33 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
     setDownloadFeedback('Generating high-resolution PDF preview...');
 
     try {
-      // 1. Exact WYSIWYG capture of the on-screen preview sheet
-      const element = document.getElementById('printable-document');
-      if (element) {
+      // 1. Exact high-fidelity capture of the on-screen Agoda voucher card or printable document
+      const targetElement = (docType === 'reservation-confirmation'
+        ? (document.getElementById('voucher-card') || document.getElementById('printable-document'))
+        : document.getElementById('printable-document'));
+
+      if (targetElement) {
         setIsExporting(true);
         // Micro-delay to let React render all rows for reports if paginated
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, 80));
 
-        const success = await pdfExportService.exportElementToPDF(element, filename, {
+        const success = await pdfExportService.exportElementToPDF(targetElement, filename, {
           isThermal: isThermal80mm,
           isLandscape: isLandscape || isGenericReport,
-          scale: 2.2,
-          margin: isThermal80mm ? 2 : 8
+          scale: 3, // Ultra-sharp 300+ DPI retina density
+          margin: docType === 'reservation-confirmation' ? 6 : (isThermal80mm ? 2 : 8),
+          metadata: {
+            title: `Reservation Confirmation Voucher - ${reservation?.reservationNumber || 'Booking'}`,
+            subject: `Official Agoda booking confirmation voucher for ${reservation?.guestName || 'Guest'}`,
+            author: propertyName,
+            creator: `${propertyName} PMS Agoda Voucher Engine`
+          }
         });
 
         setIsExporting(false);
 
         if (success) {
-          setDownloadFeedback('PDF Saved Successfully!');
+          setDownloadFeedback(docType === 'reservation-confirmation' ? 'Agoda Voucher PDF Saved!' : 'PDF Saved Successfully!');
           setTimeout(() => setDownloadFeedback(null), 3500);
           return;
         }
@@ -363,11 +516,11 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
     let success = false;
 
     try {
-      // 2. Vector PDF fallback if DOM capture encounters an unexpected browser error
+      // 3. Fallback vector PDF exporters if DOM capture encounters an error
       if (docType === 'reservation-confirmation' && reservation) {
         const resOk = await pdfExportService.exportReservationToPDF(reservation, propertyName);
         if (resOk) {
-          setDownloadFeedback('Voucher PDF Saved!');
+          setDownloadFeedback('Agoda Voucher PDF Saved!');
           setTimeout(() => setDownloadFeedback(null), 3500);
           return;
         }
@@ -482,7 +635,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
           onClose();
         }
       }}
-      className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto printable-modal-overlay select-none"
+      className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-y-auto printable-modal-overlay select-none print:static print:inset-auto print:bg-white print:p-0 print:m-0 print:overflow-visible print:block"
     >
       {/* Floating viewport close button (Top Right Corner) */}
       <button
@@ -497,36 +650,103 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
 
       <style>{`
         @media print {
-          ${isThermal80mm ? `
-            @page {
-              size: 80mm auto;
-              margin: 2mm 3mm;
-            }
-            body {
-              margin: 0 !important;
-              padding: 0 !important;
-              background: #ffffff !important;
-            }
-            #printable-document {
-              width: 76mm !important;
-              max-width: 76mm !important;
-              min-width: 76mm !important;
-              margin: 0 auto !important;
-              padding: 2mm 2mm !important;
-              box-shadow: none !important;
-              border: none !important;
-              background: #ffffff !important;
-              color: #000000 !important;
-            }
-          ` : `
-            @page {
-              size: A4 ${isLandscape ? 'landscape' : 'portrait'};
-              margin: 8mm;
-            }
-          `}
+          @page {
+            size: ${isThermal80mm ? '80mm auto' : `A4 ${isLandscape ? 'landscape' : 'portrait'}`};
+            margin: ${isThermal80mm ? '2mm 3mm' : '8mm 8mm 8mm 8mm'};
+          }
+          *, *::before, *::after {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+          }
+          .no-print, nav, header, aside, #mobile-bottom-nav, #quick-menu-docked-container, #quick-menu-drawer-overlay, #resort-live-sync-banner {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          .printable-modal-overlay {
+            position: static !important;
+            inset: auto !important;
+            display: block !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
+          .printable-modal-frame {
+            position: static !important;
+            display: block !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          .printable-paper-container {
+            position: static !important;
+            display: block !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          #printable-document {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            width: ${isThermal80mm ? '76mm' : '100%'} !important;
+            max-width: ${isThermal80mm ? '76mm' : '100%'} !important;
+            min-width: ${isThermal80mm ? '76mm' : '0'} !important;
+            margin: 0 auto !important;
+            padding: ${isThermal80mm ? '2mm 3mm' : '0'} !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            overflow: visible !important;
+          }
+          #voucher-card {
+            border: 2px solid #0f172a !important;
+            border-radius: 4px !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
+          }
         }
       `}</style>
-      <div className={`bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl ${isGenericReport || isLandscape ? 'max-w-6xl' : 'max-w-3xl'} w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative select-text`}>
+      <div className={`printable-modal-frame bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl ${isGenericReport || isLandscape ? 'max-w-6xl' : 'max-w-3xl'} w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 relative select-text print:bg-white print:border-none print:rounded-none print:shadow-none print:max-h-none print:max-w-none print:w-full print:overflow-visible print:p-0 print:m-0`}>
         
         {/* Top Control Bar (Hidden on print) */}
         <div className="p-3 sm:px-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-3 shrink-0 no-print">
@@ -805,7 +1025,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
         )}
 
         {/* Printable Area (White Paper Style) */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-900 flex flex-col items-center">
+        <div className="printable-paper-container flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-900 flex flex-col items-center print:bg-white print:p-0 print:m-0 print:overflow-visible print:block">
           {isThermal80mm && (
             <div className="mb-3 text-center no-print">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-amber-400 text-[10px] font-mono font-semibold">
@@ -861,10 +1081,10 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
             id="printable-document"
             className={
               isThermal80mm
-                ? "bg-white text-slate-950 p-4 sm:p-5 rounded-lg shadow-2xl w-[320px] max-w-[340px] text-[11px] font-mono leading-tight print:shadow-none print:p-0 print:m-0 thermal-80mm border border-slate-300 select-text"
+                ? "bg-white text-slate-950 p-4 sm:p-5 rounded-lg shadow-2xl w-[320px] max-w-[340px] text-[11px] font-mono leading-tight print:shadow-none print:p-0 print:m-0 print:border-none print:w-full print:max-w-[76mm] thermal-80mm border border-slate-300 select-text"
                 : docType === 'reservation-confirmation'
-                  ? "bg-white text-slate-900 p-2 sm:p-4 rounded shadow-lg max-w-3xl sm:max-w-4xl w-full text-xs font-sans print:shadow-none print:p-0 print:m-0 print:border-none printable-card select-text"
-                  : `bg-white text-slate-900 p-6 sm:p-8 rounded shadow-lg ${isGenericReport || isLandscape ? 'max-w-5xl' : 'max-w-2xl'} w-full text-xs font-sans print:shadow-none print:p-0 print:m-0 printable-card ${compactScale ? 'text-[11px]' : ''}`
+                  ? "bg-white text-slate-900 p-2 sm:p-4 rounded shadow-lg max-w-3xl sm:max-w-4xl w-full text-xs font-sans print:shadow-none print:p-0 print:m-0 print:border-none print:rounded-none print:max-w-none print:w-full printable-card select-text"
+                  : `bg-white text-slate-900 p-6 sm:p-8 rounded shadow-lg ${isGenericReport || isLandscape ? 'max-w-5xl' : 'max-w-2xl'} w-full text-xs font-sans print:shadow-none print:p-0 print:m-0 print:border-none print:rounded-none print:max-w-none print:w-full printable-card ${compactScale ? 'text-[11px]' : ''}`
             }
           >
             {/* 1. DOCUMENT HEADER - Hidden for 80mm thermal receipts and dedicated reservation confirmation voucher */}
@@ -1516,15 +1736,15 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
                       </div>
                     </div>
 
-                    {/* Repeating Subtle Ribbon Bar */}
-                    <div className="bg-[#cbd5e1] text-slate-600 text-[9px] uppercase tracking-widest py-0.5 px-3 mt-2 flex justify-between font-semibold border-y border-slate-300 select-none">
-                      <span>{settings.resortName || 'RESORT'}</span>
-                      <span>{settings.resortName || 'RESORT'}</span>
-                      <span>{settings.resortName || 'RESORT'}</span>
-                      <span>{settings.resortName || 'RESORT'}</span>
-                      <span>{settings.resortName || 'RESORT'}</span>
-                      <span className="hidden sm:inline">{settings.resortName || 'RESORT'}</span>
-                      <span className="hidden sm:inline">{settings.resortName || 'RESORT'}</span>
+                    {/* Repeating Subtle Ribbon Bar (7-column segmented with vertical borders matching Agoda voucher) */}
+                    <div className="grid grid-cols-7 border-y border-slate-400 divide-x divide-slate-400 bg-slate-200/90 text-slate-700 text-[9px] uppercase tracking-wider py-0.5 mt-2 font-bold select-none text-center">
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
                     </div>
 
                     {/* Dedicated Corporate or Group Booking Banner if applicable */}

@@ -1,5 +1,6 @@
 import {
-  getInitialDatabase, saveDatabase, PmsDatabaseState, SEED_HALLS, SEED_ACTIVITIES, SEED_FLOORS
+  getInitialDatabase, saveDatabase, PmsDatabaseState, SEED_HALLS, SEED_ACTIVITIES, SEED_FLOORS,
+  getOffsetDate, getTodayString, getSeedPendingReservations
 } from './mockPmsDatabase';
 import {
   SEED_ENHANCED_MENU_ITEMS, SEED_RECIPES
@@ -48,9 +49,32 @@ if (state.settings) {
   state.settings.autoNightAuditTime = '06:00';
   state.settings.autoNightAuditEnabled = false;
   if (state.settings.currentBusinessDate && state.settings.currentBusinessDate > '2028-01-01') {
-    state.settings.currentBusinessDate = typeof window !== 'undefined' ? new Date().toISOString().split('T')[0] : '2026-09-24';
+    state.settings.currentBusinessDate = typeof window !== 'undefined' ? getTodayString() : '2026-10-02';
     state.settings.lastNightAuditDate = undefined;
   }
+}
+
+// Guarantee active pending arrivals exist for current business date
+const sysBizDate = state.settings?.currentBusinessDate || getTodayString();
+const initConfirmedRes = (state.reservations || []).filter(
+  r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
+);
+const initTodayArrivalsCount = initConfirmedRes.filter(r => r.arrivalDate === sysBizDate).length;
+if (initTodayArrivalsCount === 0) {
+  if (initConfirmedRes.length >= 2) {
+    initConfirmedRes.forEach((r, idx) => {
+      const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+      r.arrivalDate = getOffsetDate(sysBizDate, offset);
+      r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+      r.updatedAt = new Date().toISOString();
+    });
+  } else {
+    const seedArrivals = getSeedPendingReservations(sysBizDate);
+    const existingIds = new Set((state.reservations || []).map(r => r.id));
+    const toAdd = seedArrivals.filter(r => !existingIds.has(r.id));
+    state.reservations = [...(state.reservations || []), ...toAdd];
+  }
+  saveDatabase(state);
 }
 if (Array.isArray(state.folios)) {
   let foliosRepaired = false;
@@ -3257,8 +3281,8 @@ export const pmsService = {
 
     const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayArrivals = state.reservations.filter(r => r.arrivalDate === todayStr && r.status !== 'Cancelled');
+    const todayStr = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const todayArrivals = state.reservations.filter(r => (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') && (r.arrivalDate === todayStr || r.arrivalDate <= todayStr));
     const todayDepartures = state.stays.filter(s => s.expectedCheckOutAt && s.expectedCheckOutAt.startsWith(todayStr) && s.status === 'Active');
     const inHouseGuests = state.stays.filter(s => s.status === 'Active').length;
 
@@ -5517,6 +5541,35 @@ export const pmsService = {
       ...pmsData
     };
 
+    // Guarantee pending arrivals for current business date after backup restore
+    const curBiz = state.settings?.currentBusinessDate || getTodayString();
+    if (!state.settings) {
+      state.settings = getInitialDatabase().settings;
+    }
+    if (!state.settings.currentBusinessDate || state.settings.currentBusinessDate < '2026-09-01' || state.settings.currentBusinessDate > '2028-01-01') {
+      state.settings.currentBusinessDate = curBiz;
+    }
+    const confirmedRestored = (state.reservations || []).filter(
+      r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
+    );
+    const todayArrivals = confirmedRestored.filter(r => r.arrivalDate === curBiz);
+    if (todayArrivals.length === 0) {
+      if (confirmedRestored.length >= 2) {
+        // Realign restored bookings so at least 2-3 are pending arrivals for today
+        confirmedRestored.forEach((r, idx) => {
+          const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+          r.arrivalDate = getOffsetDate(curBiz, offset);
+          r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+          r.updatedAt = new Date().toISOString();
+        });
+      } else {
+        const seedArrivals = getSeedPendingReservations(curBiz);
+        const existingIds = new Set((state.reservations || []).map(r => r.id));
+        const toAdd = seedArrivals.filter(r => !existingIds.has(r.id));
+        state.reservations = [...(state.reservations || []), ...toAdd];
+      }
+    }
+
     // Restore auxiliary collections
     if (payload.housekeeping) {
       try {
@@ -5569,5 +5622,35 @@ export const pmsService = {
         invoices: invoicesCount
       }
     };
+  },
+
+  reanchorArrivalsToToday(targetDate?: string): { count: number; businessDate: string } {
+    const todayStr = targetDate || state.settings?.currentBusinessDate || getTodayString();
+
+    let count = 0;
+    const confirmed = (state.reservations || []).filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending');
+
+    if (confirmed.length === 0) {
+      const seedReservations = getSeedPendingReservations(todayStr);
+      state.reservations = [...(state.reservations || []), ...seedReservations];
+      count = seedReservations.length;
+    } else {
+      confirmed.forEach((r, idx) => {
+        const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+        r.arrivalDate = getOffsetDate(todayStr, offset);
+        r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+        r.updatedAt = new Date().toISOString();
+        count++;
+      });
+    }
+
+    if (state.settings) {
+      state.settings.currentBusinessDate = todayStr;
+    }
+
+    saveDatabase(state);
+    this.addAlert('success', 'Arrivals Re-Anchored', `Successfully realigned ${count} pending arrivals to business date ${todayStr}.`);
+    notify();
+    return { count, businessDate: todayStr };
   }
 };

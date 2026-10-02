@@ -78,7 +78,7 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
     return name;
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -100,9 +100,22 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
   const reservationsByRoom = useMemo(() => {
     const map = new Map<string, any>();
     for (const res of db.reservations || []) {
-      if (res.status === 'Confirmed' && res.arrivalDate === todayStr) {
+      const isPending = res.status === 'Confirmed' || res.status === 'Unconfirmed' || (res.status as string) === 'Pending';
+      if (isPending && (res.arrivalDate === todayStr || res.arrivalDate <= todayStr)) {
         if (res.assignedRoomNumber) {
-          map.set(res.assignedRoomNumber, res);
+          const numbers = res.assignedRoomNumber.split(',').map((s: string) => s.trim());
+          for (const num of numbers) {
+            if (num) map.set(num, res);
+          }
+        }
+        if (res.assignedRoomId) {
+          map.set(res.assignedRoomId, res);
+        }
+        if (Array.isArray(res.allocatedRooms)) {
+          for (const alloc of res.allocatedRooms) {
+            if (alloc.roomNumber) map.set(alloc.roomNumber, res);
+            if (alloc.roomId) map.set(alloc.roomId, res);
+          }
         }
       }
     }
@@ -999,7 +1012,7 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
                 const style = getRoomCardStyle(room);
                 const stay = activeStaysByRoom.get(room.roomNumber);
                 const folio = stay ? (foliosByStayId.get(stay.id) || (db.folios || []).find(f => f.stayId === stay.id || f.id === stay.folioId)) : undefined;
-                const reservation = reservationsByRoom.get(room.roomNumber);
+                const reservation = reservationsByRoom.get(room.roomNumber) || reservationsByRoom.get(room.id);
                 const isHighlighted = highlightedRoomId === room.id;
                 const isDueOut = stay && stay.expectedCheckOutAt && stay.expectedCheckOutAt.startsWith(todayStr);
                 const isVip = (stay && stay.vip) || (stay && allGuests.get(stay.guestId)?.vipStatus);

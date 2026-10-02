@@ -143,7 +143,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
         setSelectedResId(effectiveResId);
         populateFromReservation(effectiveResId);
       } else {
-        const confirmed = db.reservations.filter(r => r.status === 'Confirmed');
+        const confirmed = db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending');
         if (confirmed.length > 0) {
           setCheckInMode('reservation');
           setSelectedResId(confirmed[0].id);
@@ -467,7 +467,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Reserved Arrival ({db.reservations.filter(r => r.status === 'Confirmed').length})
+              Reserved Arrival ({db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').length})
             </button>
             <button
               type="button"
@@ -498,7 +498,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
               <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
                 <span>Select Pending Reservation:</span>
                 <span className="text-[10px] text-emerald-400 font-mono">
-                  {db.reservations.filter(r => r.status === 'Confirmed').length} Confirmed Waiting
+                  {db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').length} Pending Waiting
                 </span>
               </label>
               <select
@@ -509,7 +509,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
                 }}
                 className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-amber-500 text-xs"
               >
-                {db.reservations.filter(r => r.status === 'Confirmed').map(r => (
+                {db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').map(r => (
                   <option key={r.id} value={r.id}>
                     {r.reservationNumber} — {r.guestName} ({r.roomTypeName}) [{r.arrivalDate} to {r.departureDate}]
                   </option>

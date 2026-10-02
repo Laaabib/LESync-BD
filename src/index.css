@@ -28,34 +28,121 @@
 }
 
 @media print {
-  body {
+  @page {
+    margin: 8mm 8mm 8mm 8mm;
+    size: auto;
+  }
+
+  html, body {
     background: #ffffff !important;
-    color: #000000 !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
   }
+
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  .no-print {
+
+  /* 1. Hide ALL non-printable UI elements */
+  .no-print,
+  .print\:hidden,
+  nav,
+  header,
+  aside,
+  footer,
+  main,
+  #root > div > div > main,
+  #mobile-bottom-nav,
+  #quick-menu-docked-container,
+  #quick-menu-docked-tab,
+  #quick-menu-drawer-overlay,
+  #resort-live-sync-banner,
+  #general-user-sync-indicator,
+  #cloud-sql-sync-badge,
+  #cloud-sql-sync-popover,
+  [data-no-print="true"] {
     display: none !important;
+    visibility: hidden !important;
   }
+
   .print-only {
     display: block !important;
   }
 
-  /* Make sure modal overlays do not block or clip print layout */
+  /* 2. Relax root app container from height constraints */
+  #root,
+  #root > div {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+
+  /* 3. Strip modal overlay, backdrop blur, and fixed position */
   .printable-modal-overlay {
     position: static !important;
-    background: transparent !important;
+    inset: auto !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
     padding: 0 !important;
     margin: 0 !important;
     display: block !important;
     overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
-  /* Retain voucher-card borders, rounded corners, backgrounds and layout */
+  /* 4. Strip dark modal frame container, borders, rounded corners, and shadows */
+  .printable-modal-frame,
+  .printable-modal-overlay > div {
+    position: static !important;
+    display: block !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* 5. Strip inner paper scroll container */
+  .printable-paper-container,
+  .printable-modal-overlay > div > div:last-child {
+    position: static !important;
+    display: block !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* 6. Retain voucher-card borders, rounded corners, backgrounds and layout */
   #voucher-card {
     display: block !important;
     visibility: visible !important;
@@ -75,22 +162,27 @@
     print-color-adjust: exact !important;
   }
 
-  /* Standard A4 Documents */
+  /* 7. Standard A4 Documents */
   #printable-document:not(.thermal-80mm) {
     position: static !important;
+    display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
     padding: 0 !important;
     box-shadow: none !important;
     border: none !important;
+    border-radius: 0 !important;
     background: #ffffff !important;
-    color: #000000 !important;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
   }
 
-  /* 80mm Thermal POS Receipt & Kitchen Order Ticket (KOT) */
+  /* 8. 80mm Thermal POS Receipt & Kitchen Order Ticket (KOT) */
   #printable-document.thermal-80mm {
     position: static !important;
+    display: block !important;
     width: 76mm !important;
     max-width: 76mm !important;
     min-width: 76mm !important;
@@ -98,9 +190,12 @@
     padding: 2mm 3mm !important;
     box-shadow: none !important;
     border: none !important;
+    border-radius: 0 !important;
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #000000 !important;
     font-family: 'Courier New', Courier, monospace !important;
+    overflow: visible !important;
   }
 }
 

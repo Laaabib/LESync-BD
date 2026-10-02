@@ -44,11 +44,11 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
     return pmsService.subscribe(setDb);
   }, []);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   // Active reservations that require room assignment or management
   const activeReservations = db.reservations.filter(r => 
-    r.status === 'Confirmed' || r.status === 'Unconfirmed' || r.status === 'Checked-In'
+    r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending' || r.status === 'Checked-In'
   );
 
   const filteredReservations = activeReservations.filter(res => {
@@ -62,7 +62,7 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
 
     if (filterType === 'unassigned' && res.assignedRoomId) return false;
     if (filterType === 'assigned' && !res.assignedRoomId) return false;
-    if (filterType === 'today-arrivals' && res.arrivalDate !== todayStr) return false;
+    if (filterType === 'today-arrivals' && (res.arrivalDate !== todayStr && res.arrivalDate > todayStr)) return false;
 
     if (selectedRoomTypeId !== 'all' && res.roomTypeId !== selectedRoomTypeId) return false;
 
@@ -71,7 +71,7 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
 
   const unassignedCount = activeReservations.filter(r => !r.assignedRoomId && r.status !== 'Checked-Out' && r.status !== 'Cancelled').length;
   const assignedCount = activeReservations.filter(r => !!r.assignedRoomId && r.status !== 'Checked-Out' && r.status !== 'Cancelled').length;
-  const todayArrivalsCount = activeReservations.filter(r => r.arrivalDate === todayStr).length;
+  const todayArrivalsCount = activeReservations.filter(r => (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') && (r.arrivalDate === todayStr || r.arrivalDate <= todayStr)).length;
 
   const handleOpenAssignModal = (res: Reservation, action: 'assign' | 'change' | 'upgrade' | 'downgrade' = 'assign') => {
     setTargetReservation(res);
@@ -387,7 +387,7 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
               ) : (
                 filteredReservations.map(res => {
                   const room = res.assignedRoomId ? db.rooms.find(r => r.id === res.assignedRoomId) : null;
-                  const isDueToday = res.arrivalDate === todayStr;
+                  const isDueToday = res.arrivalDate === todayStr || res.arrivalDate <= todayStr;
 
                   return (
                     <tr key={res.id} className="hover:bg-gray-50/60 transition-colors">

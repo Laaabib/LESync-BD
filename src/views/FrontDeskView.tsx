@@ -6,7 +6,7 @@ import {
   Zap, Clock, Calendar, Sparkles, AlertCircle, Check
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
-import { PmsDatabaseState } from '../services/mockPmsDatabase';
+import { PmsDatabaseState, getOffsetDate } from '../services/mockPmsDatabase';
 import { Stay, Reservation, Room } from '../types/pms';
 
 interface FrontDeskViewProps {
@@ -55,16 +55,14 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
   }, [initialTab]);
 
   const todayStr = db.settings.currentBusinessDate || new Date().toISOString().split('T')[0];
-  const tomorrowObj = new Date(todayStr);
-  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-  const tomorrowStr = tomorrowObj.toISOString().split('T')[0];
+  const tomorrowStr = getOffsetDate(todayStr, 1);
 
   // In-house active stays
   const inHouseStays = useMemo(() => db.stays.filter(s => s.status === 'Active'), [db.stays]);
 
   // All confirmed / active upcoming reservations
   const allConfirmed = useMemo(() => 
-    db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed'),
+    db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'),
     [db.reservations]
   );
 
@@ -534,9 +532,20 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                 ({filteredArrivals.length} reservations found)
               </span>
             </div>
-            <span className="text-[11px] text-gray-500">
-              Tip: Click Check-In on any confirmed booking to immediately register guest and assign room.
-            </span>
+            <div className="flex items-center space-x-2">
+              {filteredArrivals.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => pmsService.reanchorArrivalsToToday()}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-md shadow-xs transition-colors"
+                >
+                  Sync Arrivals to Today ({todayStr})
+                </button>
+              )}
+              <span className="text-[11px] text-gray-500 hidden sm:inline">
+                Tip: Click Check-In on any confirmed booking to immediately register guest and assign room.
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -564,13 +573,25 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                             ? "All scheduled arrivals for today have either been checked in or no more are pending."
                             : "No reservations found matching current filter criteria."}
                         </p>
-                        <button
-                          type="button"
-                          onClick={() => setArrivalFilter('all-upcoming')}
-                          className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-bold text-xs"
-                        >
-                          View All Upcoming Bookings
-                        </button>
+                        <div className="flex items-center justify-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setArrivalFilter('all-upcoming')}
+                            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-bold text-xs"
+                          >
+                            View All Upcoming Bookings
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              pmsService.reanchorArrivalsToToday();
+                              setArrivalFilter('today');
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs shadow-xs"
+                          >
+                            Sync Arrivals to Today ({todayStr})
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
