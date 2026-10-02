@@ -12,17 +12,28 @@ declare global {
 // Function to create or retrieve the connection pool.
 export const createPool = () => {
   if (!global._postgresPool) {
-    global._postgresPool = new Pool({
-      host: process.env.SQL_HOST,
-      user: process.env.SQL_USER,
-      password: process.env.SQL_PASSWORD,
-      database: process.env.SQL_DB_NAME,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
-    });
+    const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    const poolConfig: pg.PoolConfig = connectionString
+      ? {
+          connectionString,
+          ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+          max: 15,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 10000,
+        }
+      : {
+          host: process.env.SQL_HOST,
+          user: process.env.SQL_USER,
+          password: process.env.SQL_PASSWORD,
+          database: process.env.SQL_DB_NAME,
+          max: 20,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 10000,
+          keepAlive: true,
+          keepAliveInitialDelayMillis: 10000,
+        };
+
+    global._postgresPool = new Pool(poolConfig);
 
     // Prevent unhandled pool-level errors from crashing the application.
     // Cloud SQL and proxies naturally drop idle client sockets after inactivity.

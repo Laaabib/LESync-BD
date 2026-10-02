@@ -514,6 +514,19 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
             </div>
           </div>
 
+          {/* Vercel Environment Notice Banner */}
+          {(status.host.includes('Vercel') || (typeof window !== 'undefined' && window.location.hostname.includes('vercel'))) && (
+            <div className="mx-3.5 mt-2.5 p-2 bg-indigo-50/90 border border-indigo-200 rounded-lg text-xs text-indigo-900 flex items-start gap-2">
+              <span className="text-base leading-none">▲</span>
+              <div>
+                <p className="font-bold text-[11px] leading-tight text-indigo-950">Vercel Deployment Active</p>
+                <p className="text-[10px] text-indigo-800 mt-0.5 leading-snug">
+                  Local database is safely synchronized across browser tabs. To replicate to a cloud PostgreSQL database, add <code className="bg-indigo-100 px-1 py-0.5 rounded font-mono text-[9px]">DATABASE_URL</code> to your Vercel Environment Variables.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Action Feedback */}
           {actionFeedback && (
             <div
