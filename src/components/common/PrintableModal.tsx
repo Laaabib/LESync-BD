@@ -140,7 +140,10 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
   if (!isOpen) return null;
 
   const handlePrint = () => {
-    const docElement = document.getElementById('printable-document');
+    const isVoucher = docType === 'reservation-confirmation';
+    const voucherCard = document.getElementById('voucher-card');
+    const docElement = (isVoucher && voucherCard) ? voucherCard : document.getElementById('printable-document');
+
     if (!docElement) {
       window.print();
       return;
@@ -155,14 +158,14 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
       iframe = document.createElement('iframe');
       iframe.id = 'lesync-print-iframe';
       iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
+      iframe.style.top = '0';
+      iframe.style.left = '0';
       iframe.style.width = isThermal80mm ? '80mm' : '100%';
       iframe.style.height = '100%';
       iframe.style.border = '0';
-      iframe.style.opacity = '0.001';
+      iframe.style.opacity = '0.01';
+      iframe.style.zIndex = '99999';
       iframe.style.pointerEvents = 'none';
-      iframe.style.zIndex = '-9999';
       document.body.appendChild(iframe);
 
       const iframeDoc = iframe.contentWindow?.document || iframe.contentDocument;
@@ -178,8 +181,97 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
       });
 
       const pageOrientation = isLandscape ? 'landscape' : 'portrait';
-      const pageMargin = isThermal80mm ? '2mm 3mm' : '6mm 6mm 6mm 6mm';
+      const pageMargin = isVoucher ? '5mm' : (isThermal80mm ? '2mm 3mm' : '6mm 6mm 6mm 6mm');
       const pageSize = isThermal80mm ? '80mm auto' : `A4 ${pageOrientation}`;
+
+      const voucherPrintStyles = isVoucher ? `
+        <style>
+          @page {
+            size: A4 portrait !important;
+            margin: 4mm 5mm !important;
+          }
+          html, body {
+            height: 100% !important;
+            max-height: 288mm !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          #voucher-card {
+            display: block !important;
+            width: 100% !important;
+            max-width: 196mm !important;
+            max-height: 279mm !important;
+            overflow: hidden !important;
+            margin: 0 auto !important;
+            border: 2px solid #000000 !important;
+            border-radius: 4px !important;
+            padding: 8px 12px !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+            font-size: 9.5px !important;
+            line-height: 1.22 !important;
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            box-shadow: none !important;
+          }
+          #voucher-card * {
+            box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .vc-header { display: flex !important; justify-content: space-between !important; align-items: center !important; margin-bottom: 4px !important; width: 100% !important; }
+          .vc-brand-left { display: flex !important; align-items: center !important; gap: 8px !important; }
+          .vc-property-logo, #voucher-card img {
+            height: 32px !important;
+            max-height: 32px !important;
+            max-width: 120px !important;
+            width: auto !important;
+            object-fit: contain !important;
+            display: inline-block !important;
+            vertical-align: middle !important;
+            margin: 0 !important;
+          }
+          .vc-property-name { font-size: 14px !important; font-weight: 900 !important; letter-spacing: -0.02em !important; color: #0f172a !important; line-height: 1.1 !important; text-transform: uppercase !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; }
+          .vc-property-tagline { font-size: 8px !important; color: #64748b !important; font-weight: 500 !important; margin-top: 1px !important; }
+          .vc-title-block { text-align: right !important; flex-shrink: 0 !important; }
+          .vc-title { font-size: 18px !important; font-weight: 900 !important; letter-spacing: -0.02em !important; color: #0f172a !important; margin: 0 !important; line-height: 1.1 !important; }
+          .vc-title span { color: #0284c7 !important; }
+          .vc-title-sub { font-size: 7.5px !important; color: #64748b !important; font-weight: 500 !important; margin-top: 1px !important; }
+          .uppercase { text-transform: uppercase !important; }
+          .font-black { font-weight: 900 !important; }
+          .font-bold { font-weight: 700 !important; }
+          .vc-ribbon { display: grid !important; grid-template-columns: repeat(7, 1fr) !important; background-color: #edf2f7 !important; border-top: 1px solid #cbd5e1 !important; border-bottom: 1px solid #cbd5e1 !important; margin: 4px 0 !important; padding: 2px 0 !important; text-align: center !important; font-size: 8px !important; font-weight: bold !important; color: #475569 !important; text-transform: uppercase !important; }
+          .vc-ribbon > div { border-right: 1px solid #cbd5e1 !important; padding: 0 2px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+          .vc-ribbon > div:last-child { border-right: none !important; }
+          .vc-grid-2 { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 8px !important; margin-bottom: 4px !important; }
+          .vc-row { display: flex !important; align-items: baseline !important; margin-bottom: 2px !important; }
+          .vc-row-label { width: 130px !important; font-weight: 500 !important; color: #334155 !important; flex-shrink: 0 !important; font-size: 9px !important; }
+          .vc-row-val { flex: 1 !important; color: #0f172a !important; font-size: 9.5px !important; }
+          .vc-row-val-bold { font-weight: bold !important; }
+          .vc-box { border: 1px solid #cbd5e1 !important; border-radius: 3px !important; background: #ffffff !important; padding: 3px 6px !important; margin-top: 1px !important; margin-bottom: 3px !important; font-size: 9.5px !important; }
+          .vc-stacked-box { display: flex !important; border: 1px solid #cbd5e1 !important; border-radius: 3px !important; overflow: hidden !important; margin-bottom: 3px !important; }
+          .vc-stacked-label { width: 130px !important; background-color: #f1f5f9 !important; padding: 3px 6px !important; border-right: 1px solid #cbd5e1 !important; color: #334155 !important; font-size: 9px !important; font-weight: 500 !important; display: flex !important; flex-direction: column !important; justify-content: center !important; flex-shrink: 0 !important; }
+          .vc-stacked-val { flex: 1 !important; background-color: #ffffff !important; padding: 3px 6px !important; display: flex !important; align-items: center !important; justify-content: center !important; text-align: center !important; font-weight: bold !important; color: #0f172a !important; font-size: 9.5px !important; }
+          .vc-stay-banner { display: grid !important; grid-template-columns: 1fr 1fr !important; background-color: #edf2f7 !important; border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 4px 8px !important; margin: 4px 0 !important; font-size: 9.5px !important; }
+          .vc-multi-rooms { background: #f8fafc !important; border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 3px 6px !important; margin: 3px 0 !important; font-size: 8px !important; line-height: 1.25 !important; }
+          .vc-cancellation { border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 4px 8px !important; background: #f8fafc !important; font-size: 8.5px !important; line-height: 1.25 !important; margin: 4px 0 !important; }
+          .vc-benefits { background-color: #edf2f7 !important; border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 3px 8px !important; font-size: 8.5px !important; margin: 4px 0 !important; }
+          .vc-dates-box { border: 1px solid #cbd5e1 !important; border-radius: 3px !important; overflow: hidden !important; margin: 4px 0 !important; background: #ffffff !important; }
+          .vc-dates-header { display: grid !important; grid-template-columns: 1fr 1fr !important; background-color: #edf2f7 !important; border-bottom: 1px solid #cbd5e1 !important; padding: 3px 8px !important; font-size: 9.5px !important; }
+          .vc-dates-body { display: grid !important; grid-template-columns: 1fr 1fr !important; padding: 5px 8px !important; gap: 8px !important; }
+          .vc-sig-box { border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 5px 6px !important; background: #ffffff !important; display: flex !important; flex-direction: column !important; justify-content: space-between !important; min-height: 75px !important; }
+          .vc-sig-line { border-bottom: 1px solid #94a3b8 !important; height: 18px !important; display: flex !important; align-items: flex-end !important; justify-content: space-between !important; }
+          .vc-remarks { font-size: 8.5px !important; margin: 3px 0 !important; line-height: 1.25 !important; }
+          .vc-notes { border: 1px solid #cbd5e1 !important; border-radius: 3px !important; padding: 5px 8px !important; background: #ffffff !important; font-size: 8px !important; line-height: 1.25 !important; margin-top: 3px !important; }
+          .vc-barcode { display: flex !important; justify-content: space-between !important; align-items: center !important; margin-top: 3px !important; padding-top: 2px !important; border-top: 1px dashed #cbd5e1 !important; }
+        </style>
+      ` : '';
 
       iframeDoc.open();
       iframeDoc.write(`
@@ -190,6 +282,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             ${stylesHtml}
+            ${voucherPrintStyles}
             <style>
               @page {
                 size: ${pageSize};
@@ -203,13 +296,13 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
               html, body {
                 background: #ffffff !important;
                 background-color: #ffffff !important;
-                color: #0f172a !important;
+                color: #000000 !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 width: 100% !important;
-                height: auto !important;
-                min-height: auto !important;
-                overflow: visible !important;
+                height: ${isVoucher ? '100%' : 'auto'} !important;
+                max-height: ${isVoucher ? '288mm' : 'auto'} !important;
+                overflow: ${isVoucher ? 'hidden' : 'visible'} !important;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
                 visibility: visible !important;
               }
@@ -230,22 +323,27 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
                 border: none !important;
                 border-radius: 0 !important;
               }
+              ${!isVoucher ? `
               #voucher-card {
                 display: block !important;
                 width: 100% !important;
-                max-width: 100% !important;
-                border: 2px solid #0f172a !important;
-                border-radius: 4px !important;
+                max-width: 196mm !important;
+                border: 2px solid #000000 !important;
+                border-radius: 6px !important;
                 background: #ffffff !important;
                 box-shadow: none !important;
-                padding: 14px 16px !important;
+                padding: 10px 14px !important;
                 box-sizing: border-box !important;
+                margin: 0 auto !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
               }
               .grid.grid-cols-2, .grid-cols-2 {
                 display: grid !important;
                 grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                gap: 16px !important;
+                gap: 10px !important;
               }
+              ` : ''}
               table {
                 width: 100% !important;
                 border-collapse: collapse !important;
@@ -253,9 +351,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
             </style>
           </head>
           <body>
-            <div id="printable-document" class="${docElement.className}">
-              ${docElement.innerHTML}
-            </div>
+            ${isVoucher && voucherCard ? voucherCard.outerHTML : `<div id="printable-document" class="${docElement.className}">${docElement.innerHTML}</div>`}
           </body>
         </html>
       `);
@@ -417,6 +513,73 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
   const guest = reservation?.guestId ? pmsService.getState()?.guests?.find(g => g.id === reservation.guestId) : undefined;
   const currentUser = pmsService.getState()?.currentUser;
 
+  // Staff name for voucher: prioritize logged-in app user's name (never display booking source like Booking.com)
+  const appStaffName = (() => {
+    if (currentUser?.name && currentUser.name.trim().length > 0) {
+      return currentUser.name;
+    }
+    if (reservation?.createdBy) {
+      const cb = reservation.createdBy.trim();
+      const invalidSources = ['Booking.com', 'Agoda', 'OTA', 'Website Engine', 'Front Desk Walk-in', 'Phone / Direct', 'Direct'];
+      if (!invalidSources.includes(cb)) {
+        return cb;
+      }
+    }
+    if (currentUser?.email) {
+      return currentUser.email.split('@')[0];
+    }
+    return 'Front Desk Officer';
+  })();
+
+  // Group & Multi-Room Details
+  const totalRoomsCount = reservation?.totalRoomsCount || reservation?.allocatedRooms?.length || 1;
+
+  const roomTypeSummary = (() => {
+    if (!reservation) return 'Deluxe Room';
+    if (reservation.allocatedRooms && reservation.allocatedRooms.length > 0) {
+      const counts: Record<string, number> = {};
+      reservation.allocatedRooms.forEach(r => {
+        const typeName = r.roomTypeName || reservation.roomTypeName || 'Deluxe Room';
+        counts[typeName] = (counts[typeName] || 0) + 1;
+      });
+      const entries = Object.entries(counts);
+      if (entries.length > 1) {
+        return entries.map(([type, count]) => `${count}x ${type}`).join(', ');
+      }
+      if (entries.length === 1 && totalRoomsCount > 1) {
+        return `${totalRoomsCount}x ${entries[0][0]}`;
+      }
+    }
+    return reservation.roomTypeName || 'Deluxe Room';
+  })();
+
+  const allocatedRoomsListStr = (() => {
+    if (!reservation) return '';
+    if (reservation.allocatedRooms && reservation.allocatedRooms.length > 0) {
+      const numbers = reservation.allocatedRooms.map(r => r.roomNumber).filter(Boolean);
+      if (numbers.length > 0) return numbers.join(', ');
+    }
+    return reservation.assignedRoomNumber || (reservation as any).roomNumber || '';
+  })();
+
+  const totalAdultsCount = (() => {
+    if (!reservation) return 2;
+    if (reservation.allocatedRooms && reservation.allocatedRooms.length > 0) {
+      const sum = reservation.allocatedRooms.reduce((acc, r) => acc + (r.adults || 0), 0);
+      if (sum > 0) return sum;
+    }
+    return reservation.adults || 2;
+  })();
+
+  const totalChildrenCount = (() => {
+    if (!reservation) return 0;
+    if (reservation.allocatedRooms && reservation.allocatedRooms.length > 0) {
+      const sum = reservation.allocatedRooms.reduce((acc, r) => acc + (r.children || 0), 0);
+      return sum;
+    }
+    return reservation.children || 0;
+  })();
+
   const formatVoucherDate = (dateStr?: string) => {
     if (!dateStr) return '-';
     try {
@@ -474,13 +637,56 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
     const propertyName = settings.resortName || 'Resort MIS';
     const logoUrl = settings.logoUrl;
     const filename = getCleanFilename();
-    setDownloadFeedback('Generating high-resolution PDF preview...');
+    setDownloadFeedback('Generating official PDF...');
+
+    // 1. For Reservation Confirmation Vouchers: Render exact pixel-perfect 1:1 replica of on-screen voucher
+    if (docType === 'reservation-confirmation' && reservation) {
+      setIsExporting(true);
+      setDownloadFeedback('Generating official PDF voucher...');
+      const voucherEl = document.getElementById('voucher-card');
+      if (voucherEl) {
+        try {
+          const success = await pdfExportService.exportElementToPDF(voucherEl, filename, {
+            isLandscape: false,
+            scale: 3,
+            margin: 5,
+            fitToSinglePage: true,
+            metadata: {
+              title: `Reservation Confirmation Voucher - ${reservation.reservationNumber}`,
+              subject: `Official booking voucher for ${reservation.guestName || 'Guest'}`,
+              author: propertyName,
+              creator: `${propertyName} Online Booking Engine`,
+              keywords: `Reservation, Voucher, Confirmation, ${reservation.reservationNumber}`
+            }
+          });
+          setIsExporting(false);
+          if (success) {
+            setDownloadFeedback('Confirmation Voucher PDF Saved!');
+            setTimeout(() => setDownloadFeedback(null), 3500);
+            return;
+          }
+        } catch (err) {
+          console.warn('Voucher element export error, falling back to vector generator:', err);
+        }
+      }
+
+      try {
+        const success = await pdfExportService.exportReservationToPDF(reservation, propertyName);
+        setIsExporting(false);
+        if (success) {
+          setDownloadFeedback('Confirmation Voucher PDF Saved!');
+          setTimeout(() => setDownloadFeedback(null), 3500);
+          return;
+        }
+      } catch (err) {
+        console.warn('Vector export error:', err);
+        setIsExporting(false);
+      }
+    }
 
     try {
-      // 1. Exact high-fidelity capture of the on-screen Agoda voucher card or printable document
-      const targetElement = (docType === 'reservation-confirmation'
-        ? (document.getElementById('voucher-card') || document.getElementById('printable-document'))
-        : document.getElementById('printable-document'));
+      // 2. High-fidelity DOM capture for reports and documents
+      const targetElement = document.getElementById('printable-document');
 
       if (targetElement) {
         setIsExporting(true);
@@ -491,19 +697,19 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
           isThermal: isThermal80mm,
           isLandscape: isLandscape || isGenericReport,
           scale: 3, // Ultra-sharp 300+ DPI retina density
-          margin: docType === 'reservation-confirmation' ? 6 : (isThermal80mm ? 2 : 8),
+          margin: isThermal80mm ? 2 : 8,
           metadata: {
-            title: `Reservation Confirmation Voucher - ${reservation?.reservationNumber || 'Booking'}`,
-            subject: `Official Agoda booking confirmation voucher for ${reservation?.guestName || 'Guest'}`,
+            title: `${getDocTitle()} - ${filename.replace('.pdf', '')}`,
+            subject: `Official record generated by ${propertyName}`,
             author: propertyName,
-            creator: `${propertyName} PMS Agoda Voucher Engine`
+            creator: `${propertyName} PMS Document Engine`
           }
         });
 
         setIsExporting(false);
 
         if (success) {
-          setDownloadFeedback(docType === 'reservation-confirmation' ? 'Agoda Voucher PDF Saved!' : 'PDF Saved Successfully!');
+          setDownloadFeedback('PDF Saved Successfully!');
           setTimeout(() => setDownloadFeedback(null), 3500);
           return;
         }
@@ -520,7 +726,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
       if (docType === 'reservation-confirmation' && reservation) {
         const resOk = await pdfExportService.exportReservationToPDF(reservation, propertyName);
         if (resOk) {
-          setDownloadFeedback('Agoda Voucher PDF Saved!');
+          setDownloadFeedback('Confirmation Voucher PDF Saved!');
           setTimeout(() => setDownloadFeedback(null), 3500);
           return;
         }
@@ -824,7 +1030,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
                         activeDocType === 'reservation-confirmation' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      Agoda Voucher
+                      Confirmation Letter
                     </button>
                     <button
                       type="button"
@@ -1686,440 +1892,303 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
             )}
 
             {/* ========================================================================= */}
-            {/* 3. RESERVATION CONFIRMATION & BOOKING VOUCHER (AGODA STYLE) */}
+            {/* 3. RESERVATION CONFIRMATION & BOOKING VOUCHER */}
             {/* ========================================================================= */}
             {docType === 'reservation-confirmation' && (
               reservation ? (
-                <div id="voucher-card" className="border-2 border-slate-900 bg-white text-slate-900 p-4 sm:p-5 font-sans space-y-3.5 print:border print:border-slate-900 print:p-3 text-[11px] leading-tight select-text rounded-sm">
-                  {/* 1. TOP HEADER */}
-                  <div>
-                    <div className="flex justify-between items-start">
-                      {/* Left: Brand Logo & 5-dot colored circles */}
-                      <div>
-                        <div className="flex items-center space-x-2.5">
-                          {settings.logoUrl ? (
-                            <img
-                              src={settings.logoUrl}
-                              alt="Logo"
-                              className="h-9 max-w-[130px] object-contain"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="flex items-center space-x-1.5">
-                              <span className="w-7 h-7 rounded bg-slate-950 text-amber-400 font-black text-sm flex items-center justify-center font-serif">
-                                {(settings.resortName || 'H').charAt(0).toUpperCase()}
-                              </span>
-                              <span className="text-base font-black tracking-tight text-slate-900 lowercase font-sans">
-                                {settings.resortName?.split(' ')[0]?.toLowerCase() || 'resort'}
-                              </span>
-                            </div>
-                          )}
+                <div id="voucher-card" className="border-2 border-black bg-white text-slate-900 p-3 sm:p-4 font-sans space-y-2 print:border-2 print:border-black print:p-2.5 text-[10px] leading-tight select-text rounded-sm shadow-xs max-w-[196mm] mx-auto">
+                  {/* 1. TOP HEADER: Property Logo & Name Branding, and Booking Confirmation */}
+                  <div className="vc-header flex justify-between items-center" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: '4px' }}>
+                    {/* Left: Property Branding (Logo + Property Name + Tagline) */}
+                    <div className="vc-brand-left flex items-center space-x-2.5" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {settings.logoUrl ? (
+                        <img
+                          src={settings.logoUrl}
+                          alt={settings.resortName || 'Property Logo'}
+                          className="vc-property-logo h-8 max-w-[120px] object-contain"
+                          style={{ height: '32px', maxHeight: '32px', maxWidth: '120px', width: 'auto', objectFit: 'contain', display: 'inline-block' }}
+                          crossOrigin="anonymous"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div
+                          className="w-8 h-8 rounded bg-slate-900 text-amber-400 font-black text-sm flex items-center justify-center font-serif shadow-xs"
+                          style={{ width: '32px', height: '32px', borderRadius: '4px', backgroundColor: '#0f172a', color: '#fbbf24', fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          {(settings.resortName || 'H').charAt(0).toUpperCase()}
                         </div>
-                        {/* 5-dot colored circles matching Agoda voucher branding */}
-                        <div className="flex items-center space-x-1.5 mt-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#e11d48]" title="Red"></span>
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]" title="Yellow"></span>
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" title="Green"></span>
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#3b82f6]" title="Blue"></span>
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6]" title="Purple"></span>
-                        </div>
-                      </div>
-
-                      {/* Right: Booking Confirmation Header */}
-                      <div className="text-right">
-                        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">
-                          Booking <span className="text-[#e11d48]">Confirmation</span>
-                        </h1>
-                        <p className="text-[10px] text-slate-600 font-medium mt-0.5">
-                          Please present either an electronic or paper copy of your hotel voucher upon check-in.
-                        </p>
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <span className="vc-property-name text-base font-black tracking-tight text-slate-900 font-sans uppercase leading-tight" style={{ fontSize: '15px', fontWeight: 900, lineHeight: 1.15, color: '#0f172a', textTransform: 'uppercase' }}>
+                          {settings.resortName || 'LESync Resort & Convention Hall'}
+                        </span>
+                        <span className="vc-property-tagline text-[8.5px] text-slate-500 font-medium" style={{ fontSize: '8.5px', color: '#64748b', lineHeight: 1.2 }}>
+                          {settings.address || 'Official Hotel Reservation Confirmation'}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Repeating Subtle Ribbon Bar (7-column segmented with vertical borders matching Agoda voucher) */}
-                    <div className="grid grid-cols-7 border-y border-slate-400 divide-x divide-slate-400 bg-slate-200/90 text-slate-700 text-[9px] uppercase tracking-wider py-0.5 mt-2 font-bold select-none text-center">
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
-                      <div className="px-0.5 truncate">{settings.resortName || 'DEMO RESORT'}</div>
+                    {/* Right: Booking Confirmation Header */}
+                    <div className="vc-title-block text-right" style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <h1 className="vc-title text-lg sm:text-xl font-black tracking-tight text-slate-900" style={{ fontSize: '18px', fontWeight: 900, color: '#0f172a', margin: 0, lineHeight: 1.1 }}>
+                        BOOKING <span className="text-[#0284c7]" style={{ color: '#0284c7' }}>CONFIRMATION</span>
+                      </h1>
+                      <p className="vc-title-sub text-[8px] text-slate-500 font-medium mt-0.5" style={{ fontSize: '8px', color: '#64748b', margin: '2px 0 0 0' }}>
+                        Official Guest Reservation Voucher • Guaranteed Booking
+                      </p>
                     </div>
-
-                    {/* Dedicated Corporate or Group Booking Banner if applicable */}
-                    {(reservation.customerType === 'Corporate' || reservation.isGroupBooking) && (
-                      <div className="mt-2.5 p-2 rounded border bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-slate-300">
-                        {reservation.customerType === 'Corporate' && (
-                          <div className="flex items-center space-x-2">
-                            <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-300 text-[9px] font-bold uppercase tracking-wider">
-                              Corporate Account
-                            </span>
-                            <span className="font-bold text-slate-900 text-xs">
-                              {reservation.companyName || 'Corporate Client'}
-                            </span>
-                            {reservation.companyGstBin && (
-                              <span className="text-[10px] text-slate-500 font-mono">
-                                (BIN: {reservation.companyGstBin})
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {reservation.isGroupBooking && (
-                          <div className="flex items-center space-x-2">
-                            <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 text-[9px] font-bold uppercase tracking-wider">
-                              Group Booking
-                            </span>
-                            <span className="font-bold text-purple-950 text-xs">
-                              {reservation.groupName || 'Group Delegation'}
-                            </span>
-                            {reservation.groupLeaderName && (
-                              <span className="text-[10px] text-slate-600">
-                                • Leader: <strong className="text-slate-800">{reservation.groupLeaderName}</strong>
-                                {reservation.groupLeaderPhone && <span className="font-mono ml-1">({reservation.groupLeaderPhone})</span>}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        <div className="text-[10px] font-bold text-slate-700 font-mono self-end sm:self-auto">
-                          Total Rooms: {reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
-                  {/* 2. TWO COLUMN DETAILS GRID */}
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* 2. REPEATING SLATE RIBBON BAR */}
+                  <div className="vc-ribbon grid grid-cols-7 border-y border-slate-300 divide-x divide-slate-300 bg-[#edf2f7] text-[#475569] text-[8px] sm:text-[8.5px] font-bold uppercase tracking-wider py-0.5 select-none text-center">
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                    <div className="px-0.5 truncate">{settings.resortName ? `${settings.resortName.toUpperCase()} ...` : 'RESERVATION CONFIRMED ...'}</div>
+                  </div>
+
+                  {/* 3. TWO COLUMN DETAILS GRID */}
+                  <div className="vc-grid-2 grid grid-cols-2 gap-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
                     {/* Left Column */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-baseline">
-                        <div className="w-36 text-slate-800 font-medium">Booking ID :</div>
-                        <div className="flex-1 font-mono font-bold text-slate-950 text-xs">{reservation.reservationNumber}</div>
+                    <div className="space-y-1 text-[10px]">
+                      <div className="vc-row flex items-baseline">
+                        <div className="vc-row-label w-36 text-slate-700 font-medium">Booking ID :</div>
+                        <div className="vc-row-val vc-row-val-bold flex-1 font-mono font-bold text-slate-950">{reservation.reservationNumber}</div>
                       </div>
-                      <div className="flex items-baseline">
-                        <div className="w-36 text-slate-800 font-medium">Booking Reference No :</div>
-                        <div className="flex-1 font-mono text-slate-900">{reservation.id.slice(-8).toUpperCase()}</div>
-                      </div>
-                      <div className="flex items-baseline">
-                        <div className="w-36 text-slate-800 font-medium">
-                          {reservation.customerType === 'Corporate' ? 'Lead Delegate / Guest :' : 'Client :'}
+                      <div className="vc-row flex items-baseline">
+                        <div className="vc-row-label w-36 text-slate-700 font-medium">Booking Reference No :</div>
+                        <div className="vc-row-val flex-1 font-mono text-slate-900">
+                          {reservation.id ? `RES-${reservation.id.replace(/[^0-9]/g, '').slice(-4) || '9'}` : 'RES-9'}
                         </div>
-                        <div className="flex-1 font-black text-slate-950 uppercase">{reservation.guestName}</div>
                       </div>
-                      {reservation.customerType === 'Corporate' && reservation.companyName && (
-                        <div className="flex items-baseline">
-                          <div className="w-36 text-slate-800 font-medium">Company Name :</div>
-                          <div className="flex-1 font-bold text-blue-900">{reservation.companyName}</div>
-                        </div>
-                      )}
-                      {reservation.customerType === 'Corporate' && reservation.companyContactPerson && (
-                        <div className="flex items-baseline">
-                          <div className="w-36 text-slate-800 font-medium">Booked By / Contact :</div>
-                          <div className="flex-1 text-slate-800">
-                            {reservation.companyContactPerson} {reservation.companyDesignation ? `(${reservation.companyDesignation})` : ''}
+                      <div className="vc-row flex items-baseline">
+                        <div className="vc-row-label w-36 text-slate-700 font-medium">Client :</div>
+                        <div className="vc-row-val flex-1 font-black text-slate-950 uppercase" style={{ textTransform: 'uppercase', fontWeight: 900 }}>{reservation.guestName}</div>
+                      </div>
+                      {(reservation.groupName || reservation.companyName) && (
+                        <div className="vc-row flex items-baseline">
+                          <div className="vc-row-label w-36 text-slate-700 font-medium">Group / Org :</div>
+                          <div className="vc-row-val flex-1 font-bold text-slate-900 truncate">
+                            {reservation.groupName || reservation.companyName}
+                            {reservation.isGroupBooking ? ' (Group)' : ''}
                           </div>
                         </div>
                       )}
-                      {reservation.isGroupBooking && reservation.groupName && (
-                        <div className="flex items-baseline">
-                          <div className="w-36 text-slate-800 font-medium">Group Delegation :</div>
-                          <div className="flex-1 font-bold text-purple-900">{reservation.groupName}</div>
-                        </div>
-                      )}
-                      <div className="flex items-baseline">
-                        <div className="w-36 text-slate-800 font-medium">Member ID :</div>
-                        <div className="flex-1 font-mono text-slate-900">{guest?.guestCode || (reservation.guestId ? reservation.guestId.slice(-8).toUpperCase() : '513660356')}</div>
+                      <div className="vc-row flex items-baseline">
+                        <div className="vc-row-label w-36 text-slate-700 font-medium">Member ID :</div>
+                        <div className="vc-row-val flex-1 font-mono text-slate-900">{guest?.guestCode || (reservation.guestId ? reservation.guestId.toUpperCase() : 'GST-5')}</div>
                       </div>
-                      <div className="flex items-baseline">
-                        <div className="w-36 text-slate-800 font-medium">Country of Residence :</div>
-                        <div className="flex-1 text-slate-900">{guest?.country || guest?.nationality || 'Bangladesh'} {guest?.city ? `/ ${guest.city}` : ''}</div>
+                      <div className="vc-row flex items-baseline">
+                        <div className="vc-row-label w-36 text-slate-700 font-medium">Country of Residence :</div>
+                        <div className="vc-row-val flex-1 text-slate-900">{guest?.country || guest?.nationality || 'Bangladesh'}</div>
                       </div>
 
                       {/* Property Block */}
-                      <div className="pt-1">
-                        <div className="text-[10px] text-slate-600 font-semibold leading-none">Property :</div>
-                        <div className="text-[9px] text-slate-500 font-medium mb-0.5">Hotel :</div>
-                        <div className="border border-slate-300 bg-white p-1.5 rounded text-slate-900 font-bold">
-                          {settings.resortName}
+                      <div className="pt-0.5">
+                        <div className="text-[9px] text-slate-600 font-semibold leading-none">Property :</div>
+                        <div className="text-[8px] text-slate-400 font-medium mb-0.5">Hotel :</div>
+                        <div className="vc-box border border-slate-300 bg-white px-2 py-1 rounded text-slate-900 font-bold text-[10.5px]">
+                          {settings.resortName || 'Demo Resort & Convention Hall'}
                         </div>
                       </div>
 
                       {/* Address Block */}
                       <div>
-                        <div className="text-[10px] text-slate-600 font-semibold mb-0.5">Address :</div>
-                        <div className="border border-slate-300 bg-white p-1.5 rounded text-slate-800 text-[10.5px]">
-                          {settings.address}
+                        <div className="text-[9px] text-slate-600 font-semibold mb-0.5">Address :</div>
+                        <div className="vc-box border border-slate-300 bg-white px-2 py-1 rounded text-slate-800 text-[10px]">
+                          {settings.address || 'Rajendrapur, Gazipur, Bangladesh'}
                         </div>
                       </div>
 
                       {/* Property Contact Block */}
                       <div>
-                        <div className="text-[10px] text-slate-600 font-semibold leading-none">Property Contact Number :</div>
-                        <div className="text-[9px] text-slate-500 font-medium mb-0.5">Hotel Contact Number :</div>
-                        <div className="border border-slate-300 bg-white p-1.5 rounded font-mono text-slate-900 text-[10.5px]">
-                          {settings.phone} {settings.email ? `• ${settings.email}` : ''}
+                        <div className="text-[9px] text-slate-600 font-semibold leading-none">Property Contact Number :</div>
+                        <div className="text-[8px] text-slate-400 font-medium mb-0.5">Hotel Contact Number :</div>
+                        <div className="vc-box border border-slate-300 bg-white px-2 py-1 rounded font-mono text-slate-900 text-[9.5px]">
+                          {settings.phone || '+880 1713-456789'} {settings.email ? `• ${settings.email}` : ''}
                         </div>
                       </div>
                     </div>
 
-                    {/* Right Column (Form input style boxes matching voucher) */}
-                    <div className="space-y-1.5">
+                    {/* Right Column: 6 Stacked Form-Style Boxes */}
+                    <div className="space-y-1 text-[10px]">
                       {/* Number of Rooms */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex flex-col justify-center">
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex flex-col justify-center">
                           <span>Number of Rooms :</span>
-                          <span className="text-[9px] text-slate-400">Total Rooms :</span>
+                          <span className="text-[8px] text-slate-500">Total Rooms :</span>
                         </div>
-                        <div className="flex-1 bg-white p-1.5 font-bold text-slate-900 flex items-center justify-center font-mono text-sm">
-                          {reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1}
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 font-bold text-slate-900 flex items-center justify-center font-mono text-sm">
+                          {totalRoomsCount}
                         </div>
                       </div>
 
-                      {/* Extra Beds */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex items-center">
+                      {/* Number of Extra Beds */}
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex items-center">
                           Number of Extra Beds :
                         </div>
-                        <div className="flex-1 bg-white p-1.5 font-bold text-slate-900 flex items-center justify-center font-mono">
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 font-bold text-slate-900 flex items-center justify-center font-mono">
                           0
                         </div>
                       </div>
 
-                      {/* Adults */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex items-center">
+                      {/* Number of Adults */}
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex items-center">
                           Number of Adults :
                         </div>
-                        <div className="flex-1 bg-white p-1.5 font-bold text-slate-900 flex items-center justify-center font-mono">
-                          {reservation.adults}
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 font-bold text-slate-900 flex items-center justify-center font-mono">
+                          {totalAdultsCount}
                         </div>
                       </div>
 
-                      {/* Children */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex items-center">
+                      {/* Number of Children */}
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex items-center">
                           Number of Children :
                         </div>
-                        <div className="flex-1 bg-white p-1.5 font-bold text-slate-900 flex items-center justify-center font-mono">
-                          {reservation.children}
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 font-bold text-slate-900 flex items-center justify-center font-mono">
+                          {totalChildrenCount}
                         </div>
                       </div>
 
                       {/* Room Type */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex items-center">
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex items-center">
                           Room Type :
                         </div>
-                        <div className="flex-1 bg-white p-1.5 font-bold text-slate-900 flex items-center justify-center text-center">
-                          {reservation.allocatedRooms && reservation.allocatedRooms.length > 1
-                            ? `${reservation.allocatedRooms.length} Rooms Allocated`
-                            : reservation.roomTypeName}
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 font-bold text-slate-900 flex flex-col items-center justify-center text-center">
+                          <span className="text-[9.5px] leading-tight">{roomTypeSummary}</span>
+                          {allocatedRoomsListStr && (
+                            <span className="text-[7.5px] text-slate-500 font-mono">Rooms: {allocatedRoomsListStr}</span>
+                          )}
                         </div>
                       </div>
 
                       {/* Promotion */}
-                      <div className="flex border border-slate-300 rounded overflow-hidden">
-                        <div className="w-36 bg-[#f1f5f9] p-1.5 text-slate-700 font-medium border-r border-slate-300 flex items-center">
+                      <div className="vc-stacked-box flex border border-slate-300 rounded overflow-hidden">
+                        <div className="vc-stacked-label w-36 bg-[#f1f5f9] px-2 py-1 text-slate-700 font-medium border-r border-slate-300 flex items-center">
                           Promotion :
                         </div>
-                        <div className="flex-1 bg-white p-1.5 text-slate-800 text-[10.5px] flex items-center justify-center text-center">
-                          {reservation.packageName || (reservation.customerType === 'Corporate' ? 'Corporate Negotiated Rate & Breakfast' : 'Best Flexible Rate with Complimentary Breakfast')}
+                        <div className="vc-stacked-val flex-1 bg-white px-2 py-1 text-slate-800 text-[9.5px] flex items-center justify-center text-center">
+                          {reservation.packageName || 'Best Flexible Rate with Complimentary Breakfast'}
                         </div>
                       </div>
-                      <p className="text-[9.5px] text-slate-500 italic text-right pr-1">
-                        For Full Promotion details and conditions see confirmation email
+
+                      <p className="text-[8.5px] text-slate-500 italic text-right pr-1">
+                        *For Full Promotion details and conditions see confirmation email
                       </p>
                     </div>
                   </div>
 
-                  {/* NEW: ALLOCATED ROOMS & OCCUPANTS SCHEDULE TABLE (Rendered for all bookings, especially multi-room & group bookings) */}
-                  {reservation.allocatedRooms && reservation.allocatedRooms.length > 0 && (
-                    <div className="border border-slate-400 rounded overflow-hidden">
-                      <div className="bg-slate-900 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider flex justify-between items-center">
-                        <span className="flex items-center space-x-1.5">
-                          <span>🏨 Room Allocation & Occupancy Schedule ({reservation.allocatedRooms.length} {reservation.allocatedRooms.length === 1 ? 'Room' : 'Rooms'})</span>
+                  {/* MULTI-ROOM / GROUP BREAKDOWN (if multiple rooms allocated) */}
+                  {reservation.allocatedRooms && reservation.allocatedRooms.length > 1 && (
+                    <div className="vc-multi-rooms bg-[#f8fafc] border border-slate-300 rounded px-2 py-1 text-[8.5px] leading-tight">
+                      <div className="flex justify-between items-center mb-0.5">
+                        <span className="font-bold text-slate-800">
+                          Multi-Room Allocation Breakdown ({reservation.allocatedRooms.length} Rooms):
                         </span>
-                        <span className="font-mono text-amber-400 font-normal">
-                          {formatVoucherDate(reservation.arrivalDate)} → {formatVoucherDate(reservation.departureDate)}
-                        </span>
-                      </div>
-                      <table className="w-full text-left text-[10px]">
-                        <thead className="bg-[#f1f5f9] text-slate-800 border-b border-slate-300 font-bold">
-                          <tr>
-                            <th className="py-1 px-2 border-r border-slate-300 w-16 text-center">Room #</th>
-                            <th className="py-1 px-2 border-r border-slate-300">Room Category</th>
-                            <th className="py-1 px-2 border-r border-slate-300">Allocated Guest / Occupant</th>
-                            <th className="py-1 px-2 border-r border-slate-300 text-center w-20">Occupancy</th>
-                            <th className="py-1 px-2 border-r border-slate-300 text-right w-24">Daily Rate</th>
-                            <th className="py-1 px-2 text-right w-24">Est. Room Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200">
-                          {reservation.allocatedRooms.map((ar, idx) => {
-                            const arrD = new Date(reservation.arrivalDate);
-                            const depD = new Date(reservation.departureDate);
-                            const n = Math.max(1, Math.round((depD.getTime() - arrD.getTime()) / (1000 * 60 * 60 * 24)));
-                            return (
-                              <tr key={ar.id || idx} className="hover:bg-slate-50">
-                                <td className="py-1 px-2 font-mono font-bold text-center border-r border-slate-200 text-slate-950 bg-slate-50">
-                                  {ar.roomNumber ? `Room ${ar.roomNumber}` : `#${idx + 1}`}
-                                </td>
-                                <td className="py-1 px-2 font-semibold text-slate-900 border-r border-slate-200">
-                                  {ar.roomTypeName}
-                                </td>
-                                <td className="py-1 px-2 border-r border-slate-200 text-slate-900">
-                                  <span className="font-bold text-slate-950">{ar.guestName || reservation.guestName}</span>
-                                  {ar.guestPhone && (
-                                    <span className="text-[9px] text-slate-500 font-mono ml-1.5">({ar.guestPhone})</span>
-                                  )}
-                                </td>
-                                <td className="py-1 px-2 text-center border-r border-slate-200 font-mono text-slate-800">
-                                  {ar.adults}A {ar.children > 0 ? `+ ${ar.children}C` : ''}
-                                </td>
-                                <td className="py-1 px-2 text-right border-r border-slate-200 font-mono text-slate-800">
-                                  ৳{(ar.rate || 0).toLocaleString()}
-                                </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold text-slate-950">
-                                  ৳{((ar.rate || 0) * n).toLocaleString()}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot className="bg-[#f8fafc] border-t border-slate-300 font-bold text-slate-950 text-[10px]">
-                          <tr>
-                            <td colSpan={3} className="py-1 px-2 text-right border-r border-slate-300 uppercase">
-                              Total Schedule: {reservation.allocatedRooms.length} {reservation.allocatedRooms.length === 1 ? 'Room' : 'Rooms'}
-                            </td>
-                            <td className="py-1 px-2 text-center border-r border-slate-300 font-mono">
-                              {reservation.adults}A {reservation.children > 0 ? `+ ${reservation.children}C` : ''}
-                            </td>
-                            <td className="py-1 px-2 text-right border-r border-slate-300 font-mono text-slate-700">
-                              ৳{reservation.allocatedRooms.reduce((s, r) => s + (r.rate || 0), 0).toLocaleString()}/nt
-                            </td>
-                            <td className="py-1 px-2 text-right font-mono text-emerald-800">
-                              ৳{(reservation.totalEstimatedAmount || 0).toLocaleString()}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                  )}
-
-                  {/* NEW: GROUP GUEST ROSTER / ATTENDEE MANIFEST (When Group Booking has member names) */}
-                  {reservation.isGroupBooking && reservation.groupMembers && reservation.groupMembers.length > 0 && (
-                    <div className="border border-purple-300 rounded overflow-hidden bg-purple-50/40">
-                      <div className="bg-purple-950 text-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider flex justify-between items-center">
-                        <span className="flex items-center space-x-1.5">
-                          <span>👥 Group Guest Manifest & Attendee Roster ({reservation.groupMembers.length} Registered Guests)</span>
-                        </span>
-                        <span className="text-[9px] text-purple-200 normal-case font-normal">
-                          Group: {reservation.groupName || 'Delegation'}
+                        <span className="font-mono text-[7.5px] text-slate-500">
+                          {reservation.groupName ? `Group: ${reservation.groupName}` : 'Group / Multi-Room'}
                         </span>
                       </div>
-                      <div className="p-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[9.5px]">
-                        {reservation.groupMembers.map((m, idx) => (
-                          <div key={m.id || idx} className="bg-white border border-purple-200 rounded p-1.5 flex items-center justify-between">
-                            <div>
-                              <div className="flex items-center space-x-1">
-                                <span className="font-mono text-purple-700 font-bold">#{idx + 1}</span>
-                                <span className="font-bold text-slate-900">{m.name}</span>
-                              </div>
-                              {m.phone && <span className="block text-[8.5px] text-slate-500 font-mono">{m.phone}</span>}
-                              {m.idNumber && <span className="block text-[8px] text-slate-400 font-mono">ID: {m.idNumber}</span>}
-                            </div>
-                            {m.isLeader && (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[8px] font-bold uppercase">
-                                Leader
-                              </span>
-                            )}
-                          </div>
+                      <div className="flex flex-wrap gap-1">
+                        {reservation.allocatedRooms.map((ar, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5 text-[8px] font-medium text-slate-800 shadow-2xs"
+                          >
+                            <strong className="font-mono text-slate-900">Room {ar.roomNumber || `#${idx + 1}`}</strong>: {ar.roomTypeName || 'Deluxe'} ({ar.adults || 1}A{ar.children ? `, ${ar.children}C` : ''})
+                          </span>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* 3. CANCELLATION POLICY */}
-                  <div className="border border-slate-300 bg-slate-100/70 p-2 rounded text-[10px] text-slate-800 leading-snug">
-                    <strong className="text-slate-900">Cancellation Policy: </strong>
-                    Stay flexible! Cancel for free before {getFreeCancellationDate(reservation.arrivalDate)}. Any cancellation received within 1 day prior to the arrival date will incur the first night&apos;s charge. Failure to arrive at your hotel or property will be treated as a No-Show and will incur a charge of 100% of the booking value (Hotel policy).
-                  </div>
-
-                  {/* 4. BENEFITS INCLUDED */}
-                  <div className="bg-slate-200/90 border border-slate-300 py-1.5 px-3 rounded text-[10px] text-slate-800 font-medium">
-                    <strong className="text-slate-900">Benefits Included </strong> Free WiFi, Breakfast
-                  </div>
-
-                  {/* 5. DATES, PAYMENT & SIGNATURES */}
-                  <div className="border border-slate-300 rounded overflow-hidden">
-                    {/* Arrival & Departure Top Banner */}
-                    <div className="grid grid-cols-2 bg-slate-100 border-b border-slate-300 text-[11px]">
-                      <div className="p-2 border-r border-slate-300 flex items-center">
-                        <span className="font-bold text-slate-700 w-24">Arrival :</span>
-                        <span className="font-bold font-mono text-slate-900">
-                          {formatVoucherDate(reservation.arrivalDate)}
-                        </span>
-                        <span className="text-[10px] text-slate-500 ml-2">(From 14:00)</span>
-                      </div>
-                      <div className="p-2 flex items-center">
-                        <span className="font-bold text-slate-700 w-24">Departure :</span>
-                        <span className="font-bold font-mono text-slate-900">
-                          {formatVoucherDate(reservation.departureDate)}
-                        </span>
-                        <span className="text-[10px] text-slate-500 ml-2">(Until 12:00)</span>
-                      </div>
+                  {/* 4. STAY SCHEDULE & DATES BANNER */}
+                  <div className="vc-stay-banner grid grid-cols-2 bg-[#edf2f7] border border-slate-300 rounded py-1 px-2.5 text-[10px]">
+                    <div className="border-r border-slate-300 flex items-center space-x-2 pr-2">
+                      <span className="font-bold text-slate-700">Arrival :</span>
+                      <span className="font-bold font-mono text-slate-950 text-xs">
+                        {formatVoucherDate(reservation.arrivalDate)}
+                      </span>
+                      <span className="text-[9px] text-slate-500">(From 14:00)</span>
                     </div>
+                    <div className="flex items-center space-x-2 pl-3">
+                      <span className="font-bold text-slate-700">Departure :</span>
+                      <span className="font-bold font-mono text-slate-950 text-xs">
+                        {formatVoucherDate(reservation.departureDate)}
+                      </span>
+                      <span className="text-[9px] text-slate-500">(Until 12:00)</span>
+                    </div>
+                  </div>
 
-                    {/* Lower Row: Payment info on Left, Signature box on Right */}
-                    <div className="grid grid-cols-2 p-2.5 gap-3 bg-white">
+                  {/* 5. CANCELLATION POLICY */}
+                  <div className="vc-cancellation border border-slate-300 bg-[#f8fafc] p-2 rounded text-[9.5px] text-slate-800 leading-snug">
+                    <strong className="text-slate-950 font-bold">Cancellation Policy: </strong>
+                    Stay flexible! Cancel for free before {getFreeCancellationDate(reservation.arrivalDate)}. Any cancellation received within 1 day prior to the arrival date will incur first night&apos;s charge. Failure to arrive (No-Show) incurs 100% of booking value (Hotel policy).
+                  </div>
+
+                  {/* 6. BENEFITS INCLUDED */}
+                  <div className="vc-benefits bg-[#edf2f7] border border-slate-300 py-1 px-2.5 rounded text-[10px] text-slate-800 font-medium">
+                    <strong className="text-slate-950 font-bold">Benefits Included: </strong> Free High-Speed WiFi, Complimentary Breakfast, Welcome Drink, Swimming Pool Access
+                  </div>
+
+                  {/* 7. DATES, PAYMENT & SIGNATURES BLOCK */}
+                  <div className="vc-dates-box border border-slate-300 rounded overflow-hidden bg-white">
+                    <div className="vc-dates-body grid grid-cols-2 p-2 gap-2.5 bg-white">
                       {/* Left: Payment Method & Booked and Payable through */}
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2 text-[10px]">
-                          <div className="bg-slate-100 p-1.5 rounded border border-slate-200">
-                            <span className="text-slate-500 block text-[9px]">Payment Method :</span>
-                            <span className="font-bold text-slate-800">{reservation.bookingSource || 'Direct / Credit Card'}</span>
+                      <div className="space-y-1.5">
+                        <div className="grid grid-cols-2 gap-1.5 text-[9.5px]">
+                          <div className="bg-[#f1f5f9] p-1.5 rounded border border-slate-200">
+                            <span className="text-slate-500 block text-[8.5px]">Payment Method :</span>
+                            <span className="font-bold text-slate-900">{reservation.bookingSource || 'Direct / Front Desk'}</span>
                           </div>
-                          <div className="bg-slate-100 p-1.5 rounded border border-slate-200">
-                            <span className="text-slate-500 block text-[9px]">Card No :</span>
-                            <span className="font-mono font-bold text-slate-800">XXXX-XXXX-XXXX-4031</span>
+                          <div className="bg-[#f1f5f9] p-1.5 rounded border border-slate-200">
+                            <span className="text-slate-500 block text-[8.5px]">Card No / Ref :</span>
+                            <span className="font-mono font-bold text-slate-900">XXXX-XXXX-XXXX-4031</span>
                           </div>
                         </div>
 
                         <div>
-                          <div className="text-[9.5px] font-bold text-slate-700 leading-tight">Booked And Payable Through :</div>
-                          <div className="text-[8.5px] text-slate-400 mb-1">Booked And Payable By :</div>
-                          <div className="bg-slate-100/90 border border-slate-300 p-2 rounded text-[10px] text-slate-700 space-y-0.5">
-                            <p className="font-bold text-slate-900">{settings.resortName}</p>
-                            <p>{settings.address}</p>
-                            <p className="font-mono text-[9px]">Hotline: {settings.phone}</p>
+                          <div className="text-[9px] font-bold text-slate-800 leading-tight">Booked And Payable Through :</div>
+                          <div className="text-[8px] text-slate-500 mb-0.5">Booked And Payable By :</div>
+                          <div className="bg-[#f8fafc] border border-slate-300 p-2 rounded text-[9.5px] text-slate-700 space-y-0.5">
+                            <p className="font-bold text-slate-950 text-[10.5px]">{settings.resortName || 'Demo Resort & Convention Hall'}</p>
+                            <p className="text-[9px]">{settings.address || 'Rajendrapur, Gazipur, Bangladesh'}</p>
+                            <p className="font-mono text-[9px]">Hotline: {settings.phone || '+880 1713-456789'}</p>
                           </div>
                         </div>
                       </div>
 
-                      {/* Right: Signature Box (Guest Signature & Staff Who Made Reservation, NO OFFICIAL SEAL) */}
-                      <div className="border border-slate-300 rounded p-2.5 flex flex-col justify-between bg-slate-50/40">
+                      {/* Right: Signature Box */}
+                      <div className="vc-sig-box border border-slate-300 rounded p-2 flex flex-col justify-between bg-white min-h-[75px]">
                         {/* Guest Signature */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="font-bold text-slate-800 uppercase">Guest Signature :</span>
-                            <span className="text-slate-700 font-semibold">{reservation.guestName}</span>
+                        <div className="space-y-0.5">
+                          <div className="flex justify-between items-center text-[9.5px]">
+                            <span className="font-bold text-slate-900 uppercase">GUEST SIGNATURE :</span>
+                            <span className="text-slate-900 font-semibold">{reservation.guestName}</span>
                           </div>
-                          <div className="h-9 border-b border-slate-400 flex items-end justify-start">
-                            <span className="text-[9px] text-slate-400 italic">Signature of Guest at Check-in</span>
+                          <div className="vc-sig-line h-5 border-b border-slate-300 flex items-end justify-start">
+                            <span className="text-[8px] text-slate-400 italic">Signature of Guest at Check-in</span>
                           </div>
                         </div>
 
                         {/* Reserved By / Staff Signature */}
-                        <div className="space-y-1 pt-2">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="font-bold text-slate-800 uppercase">Reserved By :</span>
-                            <span className="font-bold text-slate-950 font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-300 text-[10.5px]">
-                              {reservation.createdBy || currentUser?.name || 'Front Desk Staff'}
+                        <div className="space-y-0.5 pt-1">
+                          <div className="flex justify-between items-center text-[9.5px]">
+                            <span className="font-bold text-slate-900 uppercase">RESERVED BY :</span>
+                            <span className="font-bold text-slate-950 font-mono bg-[#fef3c7] px-2 py-0.5 rounded border border-[#fcd34d] text-[9px]">
+                              {appStaffName}
                             </span>
                           </div>
-                          <div className="h-9 border-b border-slate-400 flex items-end justify-between">
-                            <span className="text-[9px] text-slate-400 italic">Authorized Staff Signature</span>
-                            <span className="text-[9px] font-mono text-slate-500">
+                          <div className="vc-sig-line h-5 border-b border-slate-300 flex items-end justify-between">
+                            <span className="text-[8px] text-slate-400 italic">Authorized Staff Signature</span>
+                            <span className="text-[8.5px] font-mono text-slate-500">
                               {new Date(reservation.createdAt || Date.now()).toLocaleDateString('en-GB')}
                             </span>
                           </div>
@@ -2128,70 +2197,78 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
                     </div>
                   </div>
 
-                  {/* 6. REMARKS */}
-                  <div className="space-y-1 text-[10px] text-slate-700">
-                    <div className="font-bold text-slate-900">Remarks :</div>
+                  {/* 8. REMARKS */}
+                  <div className="vc-remarks space-y-0.5 text-[9.5px] text-slate-800">
+                    <div className="font-bold text-slate-950">Remarks :</div>
                     <p>
-                      <span className="font-semibold text-slate-800">Financial Schedule: </span>
-                      Total Estimated Charges: <strong className="font-mono">৳{(reservation.totalEstimatedAmount || 0).toLocaleString()}</strong> • 
-                      Advance Deposit Received: <strong className="font-mono text-emerald-700">৳{(reservation.paidAmount || reservation.depositAmount || 0).toLocaleString()}</strong> • 
-                      Balance Payable at Check-in: <strong className="font-mono text-rose-700">৳{Math.max(0, (reservation.totalEstimatedAmount || 0) - (reservation.paidAmount || reservation.depositAmount || 0)).toLocaleString()}</strong>
+                      <span className="font-semibold text-slate-900">Financial Schedule: </span>
+                      Total Estimated Charges: <strong className="font-mono font-bold">৳{(reservation.totalEstimatedAmount || 30000).toLocaleString()}</strong> • 
+                      Advance Deposit Received: <strong className="font-mono font-bold text-emerald-700">৳{(reservation.paidAmount || reservation.depositAmount || 15000).toLocaleString()}</strong> • 
+                      Balance Payable at Check-in: <strong className="font-mono font-bold text-rose-700">৳{Math.max(0, (reservation.totalEstimatedAmount || 30000) - (reservation.paidAmount || reservation.depositAmount || 15000)).toLocaleString()}</strong>
                     </p>
-                    {reservation.customerType === 'Corporate' && reservation.companyName && (
-                      <p>
-                        <span className="font-semibold text-blue-900">Corporate Account: </span>
-                        {reservation.companyName} {reservation.companyGstBin ? `[BIN: ${reservation.companyGstBin}]` : ''} • Contact: {reservation.companyContactPerson || reservation.guestName}
-                      </p>
-                    )}
-                    {reservation.isGroupBooking && (
-                      <p>
-                        <span className="font-semibold text-purple-900">Group Delegation: </span>
-                        {reservation.groupName || 'Group Delegation'} ({reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1} Rooms Allocated)
-                        {reservation.groupLeaderName && ` • Group Leader: ${reservation.groupLeaderName}`}
-                      </p>
-                    )}
                     <p>
-                      <span className="font-semibold text-slate-800">Guest List: </span>
-                      {reservation.guestName} ({reservation.adults} Adults{reservation.children > 0 ? `, ${reservation.children} Children` : ''})
-                    </p>
-                    <p className="italic text-slate-500">
-                      All special requests are subject to availability upon arrival
+                      <span className="font-semibold text-slate-900">Primary Guest: </span>
+                      {reservation.guestName} ({reservation.adults || 2} Adults{reservation.children > 0 ? `, ${reservation.children} Children` : ''}) • Special requests subject to availability upon arrival
                     </p>
                     {reservation.specialRequests && (
-                      <p className="text-amber-900 bg-amber-50 p-1.5 rounded border border-amber-200">
+                      <div className="text-amber-950 bg-[#fffbeb] px-2 py-1 rounded border border-[#fde68a] text-[9.5px]">
                         <strong>Guest Notes / Special Requests: </strong> {reservation.specialRequests}
-                      </p>
+                      </div>
                     )}
                   </div>
 
-                  {/* 7. NOTES (matching image bullet points) */}
-                  <div className="border border-slate-300 p-2.5 rounded text-[9.5px] text-slate-600 space-y-1 bg-white leading-tight">
-                    <div className="font-bold text-slate-900 text-[10px]">Notes</div>
-                    <p className="flex items-start space-x-1.5">
-                      <span className="text-red-500 font-bold">•</span>
+                  {/* 9. NOTES */}
+                  <div className="vc-notes border border-slate-300 p-2 rounded text-[8.5px] text-slate-600 space-y-1 bg-white leading-snug">
+                    <div className="font-bold text-slate-950 text-[10px] mb-0.5">Notes</div>
+                    <p className="flex items-start space-x-1">
+                      <span className="text-red-500 font-bold leading-none mt-0.5">•</span>
                       <span>
-                        <strong className="text-red-600 uppercase">IMPORTANT: </strong> 
+                        <strong className="text-red-600 font-bold uppercase">IMPORTANT: </strong> 
                         At check-in, you must present the credit card used to make this booking and a valid photo ID (NID/Passport) with the same name. Failure to do so may result in the hotel requesting additional payment or your reservation not being honored. If you have submitted additional documentation for a third party booking or paid via a different payment method, please disregard the note above.
                       </span>
                     </p>
-                    <p className="flex items-start space-x-1.5">
-                      <span className="text-slate-400 font-bold">•</span>
+                    <p className="flex items-start space-x-1">
+                      <span className="text-slate-400 font-bold leading-none mt-0.5">•</span>
                       <span>
                         All rooms are guaranteed on the day of arrival. In the case of a no-show, your room(s) will be released and you will be subject to the terms and conditions of the Cancellation/No-Show Policy specified at the time you made the booking as well as noted in the Confirmation Email.
                       </span>
                     </p>
-                    <p className="flex items-start space-x-1.5">
-                      <span className="text-slate-400 font-bold">•</span>
+                    <p className="flex items-start space-x-1">
+                      <span className="text-slate-400 font-bold leading-none mt-0.5">•</span>
                       <span>
                         The total price for this booking does not include mini-bar items, telephone usage, laundry service, etc. The hotel will bill you directly.
                       </span>
                     </p>
-                    <p className="flex items-start space-x-1.5">
-                      <span className="text-slate-400 font-bold">•</span>
+                    <p className="flex items-start space-x-1">
+                      <span className="text-slate-400 font-bold leading-none mt-0.5">•</span>
                       <span>
                         In cases where Breakfast is included with the room rate, please note that certain hotels may charge extra for children travelling with their parents. If applicable, the hotel will bill you directly. Upon arrival, if you have any questions, please verify with the hotel.
                       </span>
                     </p>
+                  </div>
+
+                  {/* 10. BOOKING VERIFICATION BARCODE & FOOTER */}
+                  <div className="vc-barcode flex justify-between items-center pt-1.5 border-t border-dashed border-slate-300 text-[8.5px] text-slate-500">
+                    <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-0.5 py-0.5 px-1 bg-white border border-slate-300 rounded">
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-1.5 h-4 bg-slate-900"></span>
+                        <span className="inline-block w-0.5 h-4 bg-slate-900"></span>
+                      </div>
+                      <span className="font-mono font-bold text-slate-900">*{reservation.reservationNumber}*</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-slate-700 tracking-wider">OFFICIAL {settings.resortName ? settings.resortName.toUpperCase() : 'HOTEL'} RESERVATION VOUCHER</span>
+                    </div>
                   </div>
                 </div>
               ) : (

@@ -279,19 +279,20 @@ class CloudSqlSyncManager {
     try {
       const data = await safeJsonFetch<{ success: boolean; [key: string]: any }>('/api/cloudsql/status');
       if (data && data.success) {
+        const isDbConnected = Boolean(data.connected);
         this.status = {
           ...this.status,
-          connected: true,
+          connected: isDbConnected,
           region: data.region || 'us-west1',
-          database: data.database || 'postgres',
-          host: data.host || 'Cloud SQL',
-          dbVersion: data.dbVersion,
+          database: data.database || (isDbConnected ? 'postgres' : 'Local Mirror'),
+          host: data.host || (isDbConnected ? 'PostgreSQL' : 'Local Storage Engine'),
+          dbVersion: data.dbVersion || (isDbConnected ? 'PostgreSQL' : 'Client Storage v2'),
           lastSyncedAt: data.latestSnapshotTime || this.status.lastSyncedAt,
           snapshotVersion: data.snapshotVersion || this.status.snapshotVersion,
           totalEntities: data.totalEntities || this.status.totalEntities,
           totalEventsSynced: data.totalEventsSynced || this.status.totalEventsSynced,
           tableCounts: data.tableCounts || this.status.tableCounts,
-          error: null,
+          error: isDbConnected ? null : (data.error || null),
         };
       }
     } catch (err: any) {

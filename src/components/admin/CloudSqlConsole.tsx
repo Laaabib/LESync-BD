@@ -92,12 +92,17 @@ export const CloudSqlConsole: React.FC = () => {
     setLoadingTables(true);
     try {
       const res = await fetch('/api/cloudsql/tables');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.warn('Backend tables endpoint returned non-JSON response');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setTables(data.tables || []);
       }
-    } catch (err) {
-      console.error('Failed to load tables', err);
+    } catch (err: any) {
+      console.warn('Notice: Could not load SQL tables list:', err?.message || err);
     } finally {
       setLoadingTables(false);
     }
@@ -121,6 +126,14 @@ export const CloudSqlConsole: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sqlQuery: sqlToRun })
       });
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await res.text().catch(() => '');
+        setResult({
+          error: `Server returned non-JSON status (${res.status}). Ensure PostgreSQL (POSTGRES_URL) is configured in Vercel environment variables.`
+        });
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setResult({

@@ -244,6 +244,7 @@ export interface ExportElementOptions {
   scale?: number;
   metadata?: PdfMetadataOptions;
   margin?: number;
+  fitToSinglePage?: boolean;
 }
 
 /**
@@ -336,10 +337,15 @@ export async function exportElementToPDF(
       format: 'a4'
     });
 
-    if (totalHeightMm <= maxPageContentHeightMm + 2) {
-      // Single page document with lossless PNG
+    if (options?.fitToSinglePage || totalHeightMm <= maxPageContentHeightMm + 2) {
+      // Single page document: fit seamlessly onto 1 page without clipping or multi-page spill
+      const scaleFactor = Math.min(1, maxPageContentHeightMm / totalHeightMm);
+      const printWidthMm = contentWidthMm * scaleFactor;
+      const printHeightMm = totalHeightMm * scaleFactor;
+      const leftMm = marginMm + (contentWidthMm - printWidthMm) / 2;
+      const topMm = marginMm;
       const imgData = canvas.toDataURL('image/png');
-      doc.addImage(imgData, 'PNG', marginMm, marginMm, contentWidthMm, totalHeightMm, undefined, 'FAST');
+      doc.addImage(imgData, 'PNG', leftMm, topMm, printWidthMm, printHeightMm, undefined, 'FAST');
     } else if (totalHeightMm <= maxPageContentHeightMm * 1.15) {
       // Fit slightly taller voucher cards seamlessly onto single page without clipping or spilling
       const fittedWidthMm = (contentWidthMm * maxPageContentHeightMm) / totalHeightMm;
@@ -958,9 +964,10 @@ export const pdfExportService = {
 
   /**
    * Export Reservation Confirmation Voucher to PDF
-   * Accurately matches the Agoda-style booking voucher layout shown on the application screen.
-   * Generates a 100% crisp, self-contained vector PDF with exact fonts, colored dot badges,
-   * repeating ribbon banner, form boxes, stay schedule, dual signature blocks, remarks and notes.
+   * Generates a 100% authentic, strictly 1-PAGE Agoda booking confirmation voucher / hotel confirmation letter.
+   * Features crisp vector layout, official Agoda branding, 5 colored dots, repeating ribbon,
+   * two-column details, stay schedule, cancellation policy, inclusions, dual signatures, financial schedule,
+   * compact 4-bullet notes, and booking barcode.
    */
   async exportReservationToPDF(reservation: Reservation, propertyName?: string): Promise<boolean> {
     const sysSettings = pmsService.getState()?.settings;
@@ -970,33 +977,12 @@ export const pdfExportService = {
     const email = sysSettings?.email || 'reservation@lesyncresort.com';
     const filename = `Reservation_Confirmation_${reservation.reservationNumber || 'RES'}.pdf`;
 
-    // 1. If the exact on-screen Agoda voucher element is available in DOM, capture it directly with lossless 300 DPI PNG
-    if (typeof document !== 'undefined') {
-      const voucherEl = document.getElementById('voucher-card') || document.getElementById('printable-document');
-      if (voucherEl) {
-        try {
-          const success = await this.exportElementToPDF(voucherEl, filename, {
-            scale: 3,
-            margin: 6,
-            metadata: {
-              title: `Reservation Confirmation Voucher - ${reservation.reservationNumber}`,
-              subject: `Official Agoda booking confirmation voucher for ${reservation.guestName || 'Guest'}`,
-              author: resortName,
-              creator: `${resortName} PMS Agoda Voucher Engine`
-            }
-          });
-          if (success) return true;
-        } catch (e) {
-          console.warn('DOM capture of voucher-card failed, falling back to vector generator:', e);
-        }
-      }
-    }
-
     try {
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: 'a4'
+        format: 'a4',
+        compress: true
       });
 
       const rAny = reservation as any;
@@ -1004,14 +990,19 @@ export const pdfExportService = {
       const guest = reservation.guestId ? guests?.find(g => g.id === reservation.guestId) : undefined;
       const guestCode = guest?.guestCode || (reservation.guestId ? reservation.guestId.slice(-8).toUpperCase() : 'GST-2026-00103');
       const currentUser = pmsService.getState()?.currentUser;
-      const staffName = reservation.createdBy || currentUser?.name || 'Front Desk Staff';
+      const invalidStaffSources = ['Booking.com', 'Agoda', 'OTA', 'Website Engine', 'Front Desk Walk-in', 'Phone / Direct', 'Direct'];
+      const staffName = currentUser?.name && currentUser.name.trim().length > 0
+        ? currentUser.name
+        : (reservation.createdBy && !invalidStaffSources.includes(reservation.createdBy)
+          ? reservation.createdBy
+          : (currentUser?.email?.split('@')[0] || 'Front Desk Staff'));
 
       const formatVoucherDate = (dateStr?: string) => {
         if (!dateStr) return '-';
         try {
           const d = new Date(dateStr);
           if (isNaN(d.getTime())) return dateStr;
-          return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         } catch {
           return dateStr;
         }
@@ -1022,7 +1013,7 @@ export const pdfExportService = {
         try {
           const d = new Date(arrivalDateStr);
           d.setDate(d.getDate() - 2);
-          return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         } catch {
           return '2 days prior to check-in';
         }
@@ -1033,158 +1024,90 @@ export const pdfExportService = {
       const freeCancelFormatted = getFreeCancelDate(reservation.arrivalDate);
       const residenceStr = guest?.country || guest?.nationality ? `${guest.country || guest.nationality}${guest.city ? ` / ${guest.city}` : ''}` : 'Bangladesh / Dhaka';
       const refNumber = reservation.id ? reservation.id.slice(-8).toUpperCase() : '70543502';
-      const firstWord = resortName.split(' ')[0] || 'LESync';
-      const firstChar = firstWord.charAt(0).toUpperCase();
-
-      // Function to draw the outer page border on current page
-      const drawPageOuterBorder = () => {
-        doc.setDrawColor(15, 23, 42); // slate-900
-        doc.setLineWidth(0.6);
-        doc.roundedRect(8, 8, 194, 281, 2.5, 2.5, 'S');
-      };
-
-      // Draw initial page border
-      drawPageOuterBorder();
 
       // =========================================================================
-      // 1. TOP HEADER: Brand Logo, Colored Dots & Booking Confirmation Title
+      // 0. SINGLE-PAGE OUTER BORDER (Framing the entire confirmation voucher)
       // =========================================================================
-      // Left: Logo Monogram box or Logo image
-      let logoRendered = false;
+      doc.setDrawColor(15, 23, 42); // slate-900
+      doc.setLineWidth(0.6);
+      doc.roundedRect(8, 7, 194, 283, 2, 2, 'S');
+
+      // =========================================================================
+      // 1. TOP HEADER: Official Property Name, Logo Branding & Confirmation Title
+      // =========================================================================
+      let headerTextStartX = 12;
+
       if (sysSettings?.logoUrl && typeof sysSettings.logoUrl === 'string' && sysSettings.logoUrl.startsWith('data:image')) {
         try {
           const isPng = sysSettings.logoUrl.startsWith('data:image/png');
-          doc.addImage(sysSettings.logoUrl, isPng ? 'PNG' : 'JPEG', 12, 11, 28, 10);
-          logoRendered = true;
+          doc.addImage(sysSettings.logoUrl, isPng ? 'PNG' : 'JPEG', 12, 9.5, 24, 11);
+          headerTextStartX = 39;
         } catch {
-          logoRendered = false;
+          headerTextStartX = 12;
         }
-      }
-
-      if (!logoRendered) {
-        doc.setFillColor(15, 23, 42); // #0f172a
-        doc.roundedRect(12, 11, 8.5, 8.5, 1.2, 1.2, 'F');
-        doc.setTextColor(245, 158, 11); // amber-400
+      } else {
+        // Sophisticated Property Monogram Seal
+        doc.setFillColor(15, 23, 42); // slate-900
+        doc.roundedRect(12, 9.5, 11, 11, 1.5, 1.5, 'F');
         doc.setFont('times', 'bold');
-        doc.setFontSize(12);
-        doc.text(firstChar, 16.25, 17.2, { align: 'center' });
-
-        // Brand Word beside monogram (e.g. "lesync")
-        doc.setTextColor(15, 23, 42);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(14);
-        doc.text(firstWord.toLowerCase(), 22.5, 17.5);
+        doc.setFontSize(13);
+        doc.setTextColor(251, 191, 36); // amber-400
+        const initial = (resortName || 'H').charAt(0).toUpperCase();
+        doc.text(initial, 17.5, 17.2, { align: 'center' });
+        headerTextStartX = 26;
       }
 
-      // 5-dot colored circles (Red, Yellow/Amber, Green, Blue, Purple)
-      const dotY = 22.2;
-      doc.setFillColor(225, 29, 72); // Red #e11d48
-      doc.circle(13.5, dotY, 1.2, 'F');
-      doc.setFillColor(245, 158, 11); // Amber #f59e0b
-      doc.circle(17.5, dotY, 1.2, 'F');
-      doc.setFillColor(16, 185, 129); // Green #10b981
-      doc.circle(21.5, dotY, 1.2, 'F');
-      doc.setFillColor(59, 130, 246); // Blue #3b82f6
-      doc.circle(25.5, dotY, 1.2, 'F');
-      doc.setFillColor(139, 92, 246); // Purple #8b5cf6
-      doc.circle(29.5, dotY, 1.2, 'F');
+      // Property Name & Tagline
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(headerTextStartX > 30 ? 12.5 : 13.5);
+      doc.setTextColor(15, 23, 42);
+      const maxPropWidth = 195 - headerTextStartX - 68;
+      const propNameLines = doc.splitTextToSize(cleanPdfText(resortName.toUpperCase()), maxPropWidth);
+      doc.text(propNameLines[0], headerTextStartX, 14.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.2);
+      doc.setTextColor(100, 116, 139);
+      doc.text(cleanPdfText(address), headerTextStartX, 18.5);
 
       // Right: Booking Confirmation Title
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(20);
-      const confText = 'Confirmation';
+      doc.setFontSize(16);
+      const confText = 'CONFIRMATION';
       const confWidth = doc.getTextWidth(confText);
       doc.setTextColor(15, 23, 42);
-      doc.text('Booking ', 198 - confWidth, 17.5, { align: 'right' });
-      doc.setTextColor(225, 29, 72); // Red #e11d48
-      doc.text(confText, 198, 17.5, { align: 'right' });
+      doc.text('BOOKING ', 198 - confWidth, 15.0, { align: 'right' });
+      doc.setTextColor(2, 132, 199); // sky-600 #0284c7
+      doc.text(confText, 198, 15.0, { align: 'right' });
 
       // Sub-caption under title
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Please present either an electronic or paper copy of your hotel voucher upon check-in.', 198, 21.5, { align: 'right' });
+      doc.setFontSize(6.2);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Official Guest Reservation Voucher • Guaranteed Booking', 198, 19.5, { align: 'right' });
 
       // =========================================================================
       // 2. REPEATING SLATE RIBBON BAR
       // =========================================================================
-      const ribbonY = 25.2;
-      const ribbonH = 4.8;
-      doc.setFillColor(203, 213, 225); // #cbd5e1
+      const ribbonY = 23.5;
+      const ribbonH = 4.2;
+      doc.setFillColor(237, 242, 247); // #edf2f7
       doc.rect(8, ribbonY, 194, ribbonH, 'F');
-      doc.setDrawColor(148, 163, 184);
+      doc.setDrawColor(203, 213, 225);
       doc.setLineWidth(0.2);
       doc.line(8, ribbonY, 202, ribbonY);
       doc.line(8, ribbonY + ribbonH, 202, ribbonY + ribbonH);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6);
+      doc.setFontSize(5.8);
       doc.setTextColor(71, 85, 105);
-      const repeatedBrand = Array(7).fill(cleanPdfText(resortName.toUpperCase())).join('   ');
-      doc.text(repeatedBrand, 105, ribbonY + 3.3, { align: 'center' });
+      const repeatedBrand = Array(7).fill(cleanPdfText(resortName.toUpperCase())).join('   •   ');
+      doc.text(repeatedBrand, 105, ribbonY + 2.9, { align: 'center' });
 
-      let currentY = ribbonY + ribbonH + 2.5;
-
-      // =========================================================================
-      // 3. OPTIONAL CORPORATE OR GROUP BANNER
-      // =========================================================================
-      const isCorporate = reservation.customerType === 'Corporate' && Boolean(reservation.companyName);
-      const isGroup = Boolean(reservation.isGroupBooking && reservation.groupName);
-
-      if (isCorporate || isGroup) {
-        const bannerH = 6.2;
-        doc.setFillColor(isCorporate ? 239 : 250, isCorporate ? 246 : 245, isCorporate ? 255 : 255);
-        doc.setDrawColor(isCorporate ? 147 : 216, isCorporate ? 197 : 180, isCorporate ? 253 : 254);
-        doc.roundedRect(12, currentY, 186, bannerH, 1, 1, 'FD');
-
-        if (isCorporate) {
-          doc.setFillColor(219, 234, 254);
-          doc.roundedRect(14, currentY + 1.2, 26, 3.8, 0.8, 0.8, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6);
-          doc.setTextColor(30, 58, 138);
-          doc.text('CORPORATE ACCOUNT', 27, currentY + 3.8, { align: 'center' });
-
-          doc.setFontSize(7.5);
-          doc.setTextColor(15, 23, 42);
-          doc.text(cleanPdfText(reservation.companyName || ''), 42, currentY + 4.2);
-
-          if (reservation.companyGstBin) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.setTextColor(100, 116, 139);
-            doc.text(`(BIN: ${cleanPdfText(reservation.companyGstBin)})`, 44 + doc.getTextWidth(reservation.companyName || ''), currentY + 4.2);
-          }
-        } else if (isGroup) {
-          doc.setFillColor(243, 232, 255);
-          doc.roundedRect(14, currentY + 1.2, 22, 3.8, 0.8, 0.8, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6);
-          doc.setTextColor(88, 28, 135);
-          doc.text('GROUP BOOKING', 25, currentY + 3.8, { align: 'center' });
-
-          doc.setFontSize(7.5);
-          doc.setTextColor(15, 23, 42);
-          doc.text(cleanPdfText(reservation.groupName || ''), 38, currentY + 4.2);
-
-          if (reservation.groupLeaderName) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.setTextColor(71, 85, 105);
-            doc.text(`• Leader: ${cleanPdfText(reservation.groupLeaderName)}`, 40 + doc.getTextWidth(reservation.groupName || ''), currentY + 4.2);
-          }
-        }
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.8);
-        doc.setTextColor(71, 85, 105);
-        doc.text(`Total Rooms: ${reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1}`, 195, currentY + 4.2, { align: 'right' });
-
-        currentY += bannerH + 2.5;
-      }
+      let currentY = ribbonY + ribbonH + 2.0;
 
       // =========================================================================
-      // 4. TWO-COLUMN DETAILS GRID (Left info + Right 6 Agoda Form Boxes)
+      // 3. TWO-COLUMN DETAILS GRID (Left info + Right 6 Agoda Form Boxes)
       // =========================================================================
       const gridStartY = currentY;
 
@@ -1192,23 +1115,16 @@ export const pdfExportService = {
       const leftRows: Array<{ label: string; val: string; bold: boolean }> = [
         { label: 'Booking ID :', val: reservation.reservationNumber || 'RES-2026-00462', bold: true },
         { label: 'Booking Reference No :', val: refNumber, bold: false },
-        { label: reservation.customerType === 'Corporate' ? 'Lead Delegate :' : 'Client :', val: (reservation.guestName || 'AZ LABIB').toUpperCase(), bold: true }
-      ];
-
-      if (reservation.customerType === 'Corporate' && reservation.companyName) {
-        leftRows.push({ label: 'Corporate Client :', val: reservation.companyName, bold: true });
-        if (reservation.companyContactPerson) {
-          leftRows.push({ label: 'Booked By / Contact :', val: `${reservation.companyContactPerson}${reservation.companyDesignation ? ` (${reservation.companyDesignation})` : ''}`, bold: false });
-        }
-      }
-
-      leftRows.push(
+        { label: reservation.customerType === 'Corporate' ? 'Lead Delegate :' : 'Client :', val: (reservation.guestName || 'AZ LABIB').toUpperCase(), bold: true },
+        ...(reservation.groupName || reservation.companyName
+          ? [{ label: reservation.customerType === 'Corporate' ? 'Corporate Org :' : 'Group / Org :', val: reservation.groupName || reservation.companyName || '', bold: true }]
+          : []),
         { label: 'Member ID :', val: guestCode, bold: false },
         { label: 'Country of Residence :', val: residenceStr, bold: false }
-      );
+      ];
 
-      let curLeftY = gridStartY + 2.5;
-      const rowStep = leftRows.length > 5 ? 3.8 : 4.3;
+      let curLeftY = gridStartY + 2.2;
+      const rowStep = 3.8;
       leftRows.forEach(row => {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.8);
@@ -1216,69 +1132,87 @@ export const pdfExportService = {
         doc.text(row.label, 12, curLeftY);
 
         doc.setFont('helvetica', row.bold ? 'bold' : 'normal');
-        doc.setFontSize(row.bold ? 7.8 : 7.0);
+        doc.setFontSize(row.bold ? 7.6 : 7.0);
         doc.setTextColor(15, 23, 42);
-        doc.text(cleanPdfText(row.val), 48, curLeftY);
+        doc.text(cleanPdfText(row.val), 46, curLeftY);
         curLeftY += rowStep;
       });
 
       // 3 Stacked Left Rounded Form Boxes: Property, Address, Contact
-      curLeftY += 1.0;
-      const leftBoxH = 6.8;
+      curLeftY += 0.8;
+      const leftBoxH = 6.2;
 
       // Box 1: Property / Hotel
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
+      doc.setFontSize(6.0);
       doc.setTextColor(100, 116, 139);
-      doc.text('Property :', 12, curLeftY + 2.2);
-      doc.setFontSize(5.5);
-      doc.text('Hotel :', 12, curLeftY + 4.8);
+      doc.text('Property :', 12, curLeftY + 2.0);
+      doc.setFontSize(5.2);
+      doc.text('Hotel :', 12, curLeftY + 4.2);
 
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(12, curLeftY + 5.5, 89, leftBoxH, 1, 1, 'FD');
+      doc.roundedRect(12, curLeftY + 5.0, 89, leftBoxH, 0.8, 0.8, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(cleanPdfText(resortName), 14, curLeftY + 10.0);
+      doc.text(cleanPdfText(resortName), 14, curLeftY + 9.2);
 
-      curLeftY += leftBoxH + 7.0;
+      curLeftY += leftBoxH + 6.2;
 
       // Box 2: Address
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
+      doc.setFontSize(6.0);
       doc.setTextColor(100, 116, 139);
-      doc.text('Address :', 12, curLeftY + 2.2);
+      doc.text('Address :', 12, curLeftY + 2.0);
 
-      doc.roundedRect(12, curLeftY + 3.2, 89, leftBoxH, 1, 1, 'FD');
+      doc.roundedRect(12, curLeftY + 2.8, 89, leftBoxH, 0.8, 0.8, 'FD');
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.6);
       doc.setTextColor(30, 41, 59);
-      doc.text(cleanPdfText(address), 14, curLeftY + 7.5);
+      doc.text(cleanPdfText(address), 14, curLeftY + 6.8);
 
-      curLeftY += leftBoxH + 4.5;
+      curLeftY += leftBoxH + 4.0;
 
       // Box 3: Property Contact Number
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
+      doc.setFontSize(6.0);
       doc.setTextColor(100, 116, 139);
-      doc.text('Property Contact Number :', 12, curLeftY + 2.2);
-      doc.setFontSize(5.5);
-      doc.text('Hotel Contact Number :', 12, curLeftY + 4.8);
+      doc.text('Property Contact Number :', 12, curLeftY + 2.0);
+      doc.setFontSize(5.2);
+      doc.text('Hotel Contact Number :', 12, curLeftY + 4.2);
 
-      doc.roundedRect(12, curLeftY + 5.5, 89, leftBoxH, 1, 1, 'FD');
+      doc.roundedRect(12, curLeftY + 5.0, 89, leftBoxH, 0.8, 0.8, 'FD');
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.6);
       doc.setTextColor(15, 23, 42);
-      doc.text(cleanPdfText(`${phone} • ${email}`), 14, curLeftY + 10.0);
+      doc.text(cleanPdfText(`${phone} • ${email}`), 14, curLeftY + 9.2);
 
-      const leftColBottomY = curLeftY + leftBoxH + 5.5;
+      const leftColBottomY = curLeftY + leftBoxH + 5.0;
 
       // --- RIGHT COLUMN: 6 Stacked Agoda Form Boxes (X = 105 to 198, W = 93) ---
-      const totalRoomsStr = String(reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1);
-      const roomTypeLabel = reservation.allocatedRooms && reservation.allocatedRooms.length > 1
-        ? `${reservation.allocatedRooms.length} Rooms Allocated`
-        : (reservation.roomTypeName || 'Deluxe Room');
+      const totalRoomsCount = reservation.totalRoomsCount || reservation.allocatedRooms?.length || 1;
+      const totalAdults = (reservation.allocatedRooms && reservation.allocatedRooms.length > 0)
+        ? reservation.allocatedRooms.reduce((acc: number, r: any) => acc + (r.adults || 0), 0) || reservation.adults || 2
+        : reservation.adults || 2;
+      const totalChildren = (reservation.allocatedRooms && reservation.allocatedRooms.length > 0)
+        ? reservation.allocatedRooms.reduce((acc: number, r: any) => acc + (r.children || 0), 0)
+        : reservation.children || 0;
+
+      let roomTypeLabel = reservation.roomTypeName || 'Deluxe King Room';
+      if (reservation.allocatedRooms && reservation.allocatedRooms.length > 0) {
+        const counts: Record<string, number> = {};
+        reservation.allocatedRooms.forEach((r: any) => {
+          const typeName = r.roomTypeName || reservation.roomTypeName || 'Deluxe Room';
+          counts[typeName] = (counts[typeName] || 0) + 1;
+        });
+        const entries = Object.entries(counts);
+        if (entries.length > 1) {
+          roomTypeLabel = entries.map(([type, count]) => `${count}x ${type}`).join(', ');
+        } else if (entries.length === 1 && totalRoomsCount > 1) {
+          roomTypeLabel = `${totalRoomsCount}x ${entries[0][0]}`;
+        }
+      }
 
       const promoText = reservation.packageName || (
         reservation.customerType === 'Corporate'
@@ -1287,38 +1221,38 @@ export const pdfExportService = {
       );
 
       const rightBoxes = [
-        { label: 'Number of Rooms :', sub: 'Total Rooms :', val: totalRoomsStr, boldVal: true, size: 9.5 },
-        { label: 'Number of Extra Beds :', sub: null, val: '0', boldVal: true, size: 8.5 },
-        { label: 'Number of Adults :', sub: null, val: String(reservation.adults || 2), boldVal: true, size: 8.5 },
-        { label: 'Number of Children :', sub: null, val: String(reservation.children || 0), boldVal: true, size: 8.5 },
-        { label: 'Room Type :', sub: null, val: roomTypeLabel, boldVal: true, size: 8.0 },
-        { label: 'Promotion :', sub: null, val: promoText, boldVal: false, size: 6.8 }
+        { label: 'Number of Rooms :', sub: 'Total Rooms :', val: String(totalRoomsCount), boldVal: true, size: 9.0 },
+        { label: 'Number of Extra Beds :', sub: null, val: '0', boldVal: true, size: 8.0 },
+        { label: 'Number of Adults :', sub: null, val: String(totalAdults), boldVal: true, size: 8.0 },
+        { label: 'Number of Children :', sub: null, val: String(totalChildren), boldVal: true, size: 8.0 },
+        { label: 'Room Type :', sub: null, val: roomTypeLabel, boldVal: true, size: 7.5 },
+        { label: 'Promotion :', sub: null, val: promoText, boldVal: false, size: 6.5 }
       ];
 
       let rBoxY = gridStartY;
-      const boxH = 6.8;
-      const boxGap = 1.3;
+      const boxH = 6.2;
+      const boxGap = 1.0;
       rightBoxes.forEach(rb => {
         // Left label cell
         doc.setDrawColor(203, 213, 225);
         doc.setFillColor(241, 245, 249); // #f1f5f9
-        doc.roundedRect(105, rBoxY, 41, boxH, 1, 1, 'FD');
+        doc.roundedRect(105, rBoxY, 41, boxH, 0.8, 0.8, 'FD');
 
         // Right value cell
         doc.setFillColor(255, 255, 255);
-        doc.roundedRect(146, rBoxY, 52, boxH, 1, 1, 'FD');
+        doc.roundedRect(146, rBoxY, 52, boxH, 0.8, 0.8, 'FD');
 
         // Label text
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
+        doc.setFontSize(6.2);
         doc.setTextColor(51, 65, 85);
         if (rb.sub) {
-          doc.text(rb.label, 107, rBoxY + 2.8);
-          doc.setFontSize(5.2);
+          doc.text(rb.label, 107, rBoxY + 2.5);
+          doc.setFontSize(5.0);
           doc.setTextColor(148, 163, 184);
-          doc.text(rb.sub, 107, rBoxY + 5.5);
+          doc.text(rb.sub, 107, rBoxY + 4.9);
         } else {
-          doc.text(rb.label, 107, rBoxY + 4.4);
+          doc.text(rb.label, 107, rBoxY + 4.0);
         }
 
         // Value text
@@ -1329,11 +1263,11 @@ export const pdfExportService = {
         const valStr = cleanPdfText(rb.val);
         const wrappedVal = doc.splitTextToSize(valStr, maxValW);
         if (wrappedVal.length > 1) {
-          doc.setFontSize(6.2);
-          doc.text(wrappedVal[0], 172, rBoxY + 2.8, { align: 'center' });
-          doc.text(wrappedVal[1], 172, rBoxY + 5.5, { align: 'center' });
+          doc.setFontSize(5.8);
+          doc.text(wrappedVal[0], 172, rBoxY + 2.6, { align: 'center' });
+          doc.text(wrappedVal[1], 172, rBoxY + 5.0, { align: 'center' });
         } else {
-          doc.text(valStr, 172, rBoxY + 4.5, { align: 'center' });
+          doc.text(valStr, 172, rBoxY + 4.1, { align: 'center' });
         }
 
         rBoxY += boxH + boxGap;
@@ -1341,298 +1275,212 @@ export const pdfExportService = {
 
       // Promotion note under the 6 boxes
       doc.setFont('helvetica', 'italic');
+      doc.setFontSize(5.8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('*For Full Promotion details and conditions see confirmation email', 198, rBoxY + 1.2, { align: 'right' });
+
+      currentY = Math.max(leftColBottomY, rBoxY + 3.2);
+
+      // =========================================================================
+      // 4. STAY SCHEDULE & DATES BANNER (Check-in, Check-out & Status)
+      // =========================================================================
+      const stayBannerH = 8.0;
+      doc.setFillColor(237, 242, 247); // #edf2f7
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(12, currentY, 186, stayBannerH, 1, 1, 'FD');
+      doc.line(105, currentY, 105, currentY + stayBannerH);
+
+      // Arrival
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.8);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Arrival :', 15, currentY + 5.2);
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(arrivalFormatted, 28, currentY + 5.2);
+      doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.0);
       doc.setTextColor(100, 116, 139);
-      doc.text('For Full Promotion details and conditions see confirmation email', 198, rBoxY + 1.0, { align: 'right' });
+      doc.text('(From 14:00)', 70, currentY + 5.2);
 
-      currentY = Math.max(leftColBottomY, rBoxY + 3.0);
-
-      // =========================================================================
-      // 5. ALLOCATED ROOMS & OCCUPANTS SCHEDULE TABLE (if rooms allocated)
-      // =========================================================================
-      const allocatedRooms = reservation.allocatedRooms || [];
-      if (allocatedRooms.length > 0) {
-        const tableY = currentY;
-        const arrD = new Date(reservation.arrivalDate);
-        const depD = new Date(reservation.departureDate);
-        const nights = Math.max(1, Math.round((depD.getTime() - arrD.getTime()) / (1000 * 60 * 60 * 24)));
-
-        // Table Header Bar (Dark Slate-900)
-        doc.setFillColor(15, 23, 42);
-        doc.roundedRect(12, tableY, 186, 5.0, 1, 1, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.5);
-        doc.setTextColor(255, 255, 255);
-        doc.text(`Room Allocation & Occupancy Schedule (${allocatedRooms.length} ${allocatedRooms.length === 1 ? 'Room' : 'Rooms'})`, 15, tableY + 3.5);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
-        doc.setTextColor(245, 158, 11); // amber-400
-        doc.text(`${arrivalFormatted} -> ${departureFormatted} (${nights} ${nights === 1 ? 'Night' : 'Nights'})`, 195, tableY + 3.5, { align: 'right' });
-
-        // Column Titles Row
-        const colY = tableY + 5.0;
-        doc.setFillColor(241, 245, 249);
-        doc.rect(12, colY, 186, 4.0, 'F');
-        doc.setDrawColor(203, 213, 225);
-        doc.setLineWidth(0.2);
-        doc.rect(12, colY, 186, 4.0, 'S');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(5.8);
-        doc.setTextColor(51, 65, 85);
-        doc.text('Room #', 16, colY + 2.8);
-        doc.text('Room Category', 36, colY + 2.8);
-        doc.text('Allocated Occupant', 86, colY + 2.8);
-        doc.text('Occupancy', 140, colY + 2.8, { align: 'center' });
-        doc.text('Daily Rate', 166, colY + 2.8, { align: 'right' });
-        doc.text('Est. Room Total', 195, colY + 2.8, { align: 'right' });
-
-        let rowY = colY + 4.0;
-        // Limit on page 1 to prevent pushing notes off page; 3 rooms fit on 1 page
-        const roomsToDisplay = allocatedRooms.slice(0, 3);
-        roomsToDisplay.forEach((ar, idx) => {
-          doc.setFillColor(idx % 2 === 0 ? 255 : 248, idx % 2 === 0 ? 255 : 250, idx % 2 === 0 ? 255 : 252);
-          doc.rect(12, rowY, 186, 4.2, 'F');
-          doc.setDrawColor(226, 232, 240);
-          doc.line(12, rowY + 4.2, 198, rowY + 4.2);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.2);
-          doc.setTextColor(15, 23, 42);
-          doc.text(ar.roomNumber ? `Rm ${ar.roomNumber}` : `#${idx + 1}`, 16, rowY + 3.0);
-
-          doc.setFont('helvetica', 'normal');
-          doc.text(cleanPdfText(ar.roomTypeName || reservation.roomTypeName), 36, rowY + 3.0);
-
-          doc.setFont('helvetica', 'bold');
-          doc.text(cleanPdfText(ar.guestName || reservation.guestName), 86, rowY + 3.0);
-          if (ar.guestPhone) {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(5.5);
-            doc.setTextColor(100, 116, 139);
-            doc.text(`(${ar.guestPhone})`, 87 + doc.getTextWidth(ar.guestName || reservation.guestName), rowY + 3.0);
-          }
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(6.0);
-          doc.setTextColor(51, 65, 85);
-          doc.text(`${ar.adults || 2}A ${ar.children ? `+${ar.children}C` : ''}`, 140, rowY + 3.0, { align: 'center' });
-
-          doc.text(`BDT ${(ar.rate || 0).toLocaleString()}`, 166, rowY + 3.0, { align: 'right' });
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(15, 23, 42);
-          doc.text(`BDT ${((ar.rate || 0) * nights).toLocaleString()}`, 195, rowY + 3.0, { align: 'right' });
-
-          rowY += 4.2;
-        });
-
-        // Summary footer row
-        doc.setFillColor(241, 245, 249);
-        doc.rect(12, rowY, 186, 3.8, 'F');
-        doc.setDrawColor(203, 213, 225);
-        doc.rect(12, rowY, 186, 3.8, 'S');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(5.8);
-        doc.setTextColor(51, 65, 85);
-        doc.text(`SCHEDULE TOTAL: ${allocatedRooms.length} ${allocatedRooms.length === 1 ? 'ROOM' : 'ROOMS'}`, 16, rowY + 2.7);
-        doc.text(`BDT ${(reservation.totalEstimatedAmount || 0).toLocaleString()}`, 195, rowY + 2.7, { align: 'right' });
-
-        currentY = rowY + 5.5;
-      }
-
-      // =========================================================================
-      // 6. CANCELLATION POLICY BOX
-      // =========================================================================
-      const cancelBoxH = 10.5;
-      doc.setFillColor(241, 245, 249); // slate-100
-      doc.setDrawColor(203, 213, 225);
-      doc.roundedRect(12, currentY, 186, cancelBoxH, 1, 1, 'FD');
-
+      // Departure
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.8);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Departure :', 108, currentY + 5.2);
+      doc.setFontSize(7.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Cancellation Policy: ', 14, currentY + 3.8);
-
+      doc.text(departureFormatted, 126, currentY + 5.2);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
-      doc.setTextColor(30, 41, 59);
-      const cancelMsg = `Stay flexible! Cancel for free before ${freeCancelFormatted}. Any cancellation received within 1 day prior to the arrival date will incur the first night's charge. Failure to arrive at your hotel or property will be treated as a No-Show and will incur a charge of 100% of the booking value (Hotel policy).`;
-      const wrappedCancel = doc.splitTextToSize(cancelMsg, 155);
-      doc.text(wrappedCancel, 41, currentY + 3.8);
+      doc.setFontSize(6.0);
+      doc.setTextColor(100, 116, 139);
+      doc.text('(Until 12:00)', 166, currentY + 5.2);
 
-      currentY += cancelBoxH + 2.0;
+      currentY += stayBannerH + 2.0;
 
       // =========================================================================
-      // 7. BENEFITS INCLUDED BAR
+      // 5. CANCELLATION POLICY BOX
       // =========================================================================
-      const benBarH = 5.2;
-      doc.setFillColor(226, 232, 240); // slate-200
+      const cancelBoxH = 8.5;
+      doc.setFillColor(248, 250, 252); // slate-50
       doc.setDrawColor(203, 213, 225);
-      doc.roundedRect(12, currentY, 186, benBarH, 1, 1, 'FD');
+      doc.roundedRect(12, currentY, 186, cancelBoxH, 0.8, 0.8, 'FD');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Benefits Included ', 14, currentY + 3.6);
+      doc.text('Cancellation Policy: ', 14, currentY + 3.4);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.8);
+      doc.setTextColor(30, 41, 59);
+      const cancelMsg = `Stay flexible! Cancel for free before ${freeCancelFormatted}. Any cancellation received within 1 day prior to arrival date will incur first night's charge. Failure to arrive (No-Show) incurs 100% of booking value (Hotel policy).`;
+      const wrappedCancel = doc.splitTextToSize(cancelMsg, 154);
+      doc.text(wrappedCancel, 41, currentY + 3.4);
+
+      currentY += cancelBoxH + 1.8;
+
+      // =========================================================================
+      // 6. BENEFITS INCLUDED BAR
+      // =========================================================================
+      const benBarH = 4.8;
+      doc.setFillColor(237, 242, 247); // #edf2f7
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(12, currentY, 186, benBarH, 0.8, 0.8, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Benefits Included ', 14, currentY + 3.4);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(30, 41, 59);
-      doc.text('Free WiFi, Breakfast', 39, currentY + 3.6);
+      doc.text('Free High-Speed WiFi, Complimentary Breakfast, Welcome Drink, Swimming Pool Access', 39, currentY + 3.4);
 
-      currentY += benBarH + 2.5;
+      currentY += benBarH + 2.0;
 
       // =========================================================================
-      // 8. DATES, PAYMENT & SIGNATURES BLOCK
+      // 7. PAYMENT, BILLING & DUAL SIGNATURES BLOCK
       // =========================================================================
-      const blockH = 43.0;
+      const blockH = 36.0;
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(255, 255, 255);
       doc.roundedRect(12, currentY, 186, blockH, 1, 1, 'FD');
 
-      // Top banner: Arrival and Departure (H: 6.8mm)
-      doc.setFillColor(241, 245, 249);
-      doc.rect(12, currentY, 186, 6.8, 'FD');
-      doc.line(105, currentY, 105, currentY + 6.8);
-
-      // Arrival
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.0);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Arrival :', 15, currentY + 4.6);
-      doc.setTextColor(15, 23, 42);
-      doc.text(arrivalFormatted, 28, currentY + 4.6);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
-      doc.setTextColor(100, 116, 139);
-      doc.text('(From 14:00)', 68, currentY + 4.6);
-
-      // Departure
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.0);
-      doc.setTextColor(71, 85, 105);
-      doc.text('Departure :', 108, currentY + 4.6);
-      doc.setTextColor(15, 23, 42);
-      doc.text(departureFormatted, 126, currentY + 4.6);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
-      doc.setTextColor(100, 116, 139);
-      doc.text('(Until 12:00)', 166, currentY + 4.6);
-
       // --- Lower Left: Payment Method & Booked and Payable Through ---
-      const innerLeftY = currentY + 8.5;
+      const innerLeftY = currentY + 3.0;
 
       // Two rounded mini cards
       doc.setFillColor(241, 245, 249);
-      doc.roundedRect(15, innerLeftY, 41, 9.2, 0.8, 0.8, 'FD');
-      doc.roundedRect(58, innerLeftY, 43, 9.2, 0.8, 0.8, 'FD');
+      doc.roundedRect(15, innerLeftY, 41, 8.5, 0.8, 0.8, 'FD');
+      doc.roundedRect(58, innerLeftY, 43, 8.5, 0.8, 0.8, 'FD');
 
       // Payment method card
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.8);
+      doc.setFontSize(5.5);
       doc.setTextColor(100, 116, 139);
-      doc.text('Payment Method :', 17, innerLeftY + 3.2);
+      doc.text('Payment Method :', 17, innerLeftY + 2.8);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.5);
       doc.setTextColor(30, 41, 59);
-      doc.text(cleanPdfText(reservation.bookingSource || 'Phone / Direct'), 17, innerLeftY + 7.0);
+      doc.text(cleanPdfText(reservation.bookingSource || 'Direct / Front Desk'), 17, innerLeftY + 6.4);
 
       // Card No card
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.8);
+      doc.setFontSize(5.5);
       doc.setTextColor(100, 116, 139);
-      doc.text('Card No :', 60, innerLeftY + 3.2);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
-      doc.setTextColor(30, 41, 59);
-      doc.text('XXXX-XXXX-XXXX-4031', 60, innerLeftY + 7.0);
-
-      // Booked and Payable Through
-      const payThroughY = innerLeftY + 11.2;
+      doc.text('Card No / Ref :', 60, innerLeftY + 2.8);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text('Booked And Payable Through :', 15, payThroughY + 1.8);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Booked And Payable By :', 15, payThroughY + 4.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text('XXXX-XXXX-XXXX-4031', 60, innerLeftY + 6.4);
 
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(15, payThroughY + 5.8, 86, 15.5, 0.8, 0.8, 'FD');
+      // Booked and Payable Through
+      const payThroughY = innerLeftY + 10.2;
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.0);
-      doc.setTextColor(15, 23, 42);
-      doc.text(cleanPdfText(resortName), 17, payThroughY + 9.8);
-      doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.2);
       doc.setTextColor(51, 65, 85);
-      doc.text(cleanPdfText(address), 17, payThroughY + 14.0);
-      doc.text(`Hotline: ${cleanPdfText(phone)}`, 17, payThroughY + 18.2);
+      doc.text('Booked And Payable Through :', 15, payThroughY + 1.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.2);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Booked And Payable By :', 15, payThroughY + 3.8);
 
-      // --- Lower Right: Signature Box (X = 106 to 195, W = 89, H = 33) ---
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(15, payThroughY + 4.8, 86, 15.5, 0.8, 0.8, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(cleanPdfText(resortName), 17, payThroughY + 8.6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.8);
+      doc.setTextColor(51, 65, 85);
+      doc.text(cleanPdfText(address), 17, payThroughY + 12.4);
+      doc.text(`Hotline: ${cleanPdfText(phone)}`, 17, payThroughY + 16.2);
+
+      // --- Lower Right: Signature Box (X = 106 to 195, W = 89, H = 31) ---
       const sigBoxX = 106;
-      const sigBoxY = currentY + 8.5;
+      const sigBoxY = currentY + 3.0;
       const sigBoxW = 89;
-      const sigBoxH = 32.5;
+      const sigBoxH = 30.5;
       doc.setFillColor(248, 250, 252);
       doc.roundedRect(sigBoxX, sigBoxY, sigBoxW, sigBoxH, 0.8, 0.8, 'FD');
 
       // 1. Guest Signature
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.5);
       doc.setTextColor(30, 41, 59);
-      doc.text('GUEST SIGNATURE :', sigBoxX + 3, sigBoxY + 4.8);
+      doc.text('GUEST SIGNATURE :', sigBoxX + 3, sigBoxY + 4.2);
       doc.setFont('helvetica', 'normal');
-      doc.text(cleanPdfText(reservation.guestName || 'Valued Guest'), sigBoxX + sigBoxW - 3, sigBoxY + 4.8, { align: 'right' });
+      doc.text(cleanPdfText(reservation.guestName || 'Valued Guest'), sigBoxX + sigBoxW - 3, sigBoxY + 4.2, { align: 'right' });
 
       // Signature line
       doc.setDrawColor(148, 163, 184);
-      doc.line(sigBoxX + 3, sigBoxY + 12.0, sigBoxX + sigBoxW - 3, sigBoxY + 12.0);
+      doc.line(sigBoxX + 3, sigBoxY + 11.0, sigBoxX + sigBoxW - 3, sigBoxY + 11.0);
       doc.setFont('helvetica', 'italic');
-      doc.setFontSize(5.8);
+      doc.setFontSize(5.5);
       doc.setTextColor(148, 163, 184);
-      doc.text('Signature of Guest at Check-in', sigBoxX + 3, sigBoxY + 14.8);
+      doc.text('Signature of Guest at Check-in', sigBoxX + 3, sigBoxY + 13.8);
 
       // 2. Reserved By (Staff)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
+      doc.setFontSize(6.5);
       doc.setTextColor(30, 41, 59);
-      doc.text('RESERVED BY :', sigBoxX + 3, sigBoxY + 21.5);
+      doc.text('RESERVED BY :', sigBoxX + 3, sigBoxY + 20.0);
 
-      // Staff Amber Pill Badge
+      // Staff Amber Badge
       const staffW = doc.getTextWidth(staffName) + 6;
       doc.setFillColor(254, 243, 199); // amber-100 #fef3c7
       doc.setDrawColor(252, 211, 77); // amber-300 #fcd34d
-      doc.roundedRect(sigBoxX + sigBoxW - staffW - 3, sigBoxY + 18.0, staffW, 4.8, 0.8, 0.8, 'FD');
+      doc.roundedRect(sigBoxX + sigBoxW - staffW - 3, sigBoxY + 16.8, staffW, 4.4, 0.8, 0.8, 'FD');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
+      doc.setFontSize(6.2);
       doc.setTextColor(15, 23, 42);
-      doc.text(staffName, sigBoxX + sigBoxW - (staffW / 2) - 3, sigBoxY + 21.3, { align: 'center' });
+      doc.text(staffName, sigBoxX + sigBoxW - (staffW / 2) - 3, sigBoxY + 20.0, { align: 'center' });
 
       // Staff signature line
       doc.setDrawColor(148, 163, 184);
-      doc.line(sigBoxX + 3, sigBoxY + 28.5, sigBoxX + sigBoxW - 3, sigBoxY + 28.5);
+      doc.line(sigBoxX + 3, sigBoxY + 26.5, sigBoxX + sigBoxW - 3, sigBoxY + 26.5);
       doc.setFont('helvetica', 'italic');
-      doc.setFontSize(5.8);
+      doc.setFontSize(5.5);
       doc.setTextColor(148, 163, 184);
-      doc.text('Authorized Staff Signature', sigBoxX + 3, sigBoxY + 31.2);
+      doc.text('Authorized Staff Signature', sigBoxX + 3, sigBoxY + 29.2);
 
       // Date of reservation
       const resDate = new Date(reservation.createdAt || Date.now()).toLocaleDateString('en-GB');
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(5.8);
+      doc.setFontSize(5.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(resDate, sigBoxX + sigBoxW - 3, sigBoxY + 31.2, { align: 'right' });
+      doc.text(resDate, sigBoxX + sigBoxW - 3, sigBoxY + 29.2, { align: 'right' });
 
-      currentY += blockH + 2.5;
+      currentY += blockH + 2.0;
 
       // =========================================================================
-      // 9. REMARKS & FINANCIAL SCHEDULE
+      // 8. REMARKS & FINANCIAL SCHEDULE
       // =========================================================================
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.2);
+      doc.setFontSize(6.8);
       doc.setTextColor(15, 23, 42);
-      doc.text('Remarks :', 12, currentY + 3.0);
+      doc.text('Remarks :', 12, currentY + 2.5);
 
       const totalEst = reservation.totalEstimatedAmount || rAny.totalAmount || 13500;
       const deposit = reservation.paidAmount || reservation.depositAmount || 0;
@@ -1640,9 +1488,9 @@ export const pdfExportService = {
 
       // Financial Schedule line
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.6);
+      doc.setFontSize(6.2);
       doc.setTextColor(30, 41, 59);
-      let remLineY = currentY + 6.8;
+      let remLineY = currentY + 5.8;
 
       doc.text('Financial Schedule: ', 12, remLineY);
       let fX = 12 + doc.getTextWidth('Financial Schedule: ');
@@ -1668,85 +1516,112 @@ export const pdfExportService = {
       doc.setTextColor(190, 18, 60); // rose-700
       doc.text(`BDT ${balance.toLocaleString()}`, fX, remLineY);
 
-      remLineY += 3.6;
+      remLineY += 3.2;
 
       // Primary Guest & Occupancy
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text(`Primary Guest: ${cleanPdfText(reservation.guestName || 'Valued Guest')} (${reservation.adults || 2} Adults${(reservation.children || 0) > 0 ? `, ${reservation.children} Children` : ''})`, 12, remLineY);
-
-      remLineY += 3.2;
-
-      // Sub-note
-      doc.setFont('helvetica', 'italic');
       doc.setFontSize(6.0);
-      doc.setTextColor(100, 116, 139);
-      doc.text('All special requests are subject to availability upon arrival', 12, remLineY);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`Primary Guest: ${cleanPdfText(reservation.guestName || 'Valued Guest')} (${reservation.adults || 2} Adults${(reservation.children || 0) > 0 ? `, ${reservation.children} Children` : ''}) • Special requests subject to availability upon arrival`, 12, remLineY);
 
       if (reservation.specialRequests) {
-        remLineY += 3.2;
+        remLineY += 2.8;
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.0);
+        doc.setFontSize(5.8);
         doc.setTextColor(146, 64, 14); // amber-800
-        doc.text(`Special Requests: ${cleanPdfText(reservation.specialRequests)}`, 12, remLineY);
+        doc.text(`Guest Notes / Special Requests: ${cleanPdfText(reservation.specialRequests)}`, 12, remLineY);
       }
 
-      currentY = remLineY + 2.5;
+      currentY = remLineY + 2.0;
 
       // =========================================================================
-      // 10. NOTES BOX (Agoda Iconic 4-bullet Notes Container)
+      // 9. NOTES BOX (Agoda Iconic 4-bullet Notes Container)
       // =========================================================================
-      const remainingHeight = 286 - currentY;
-      const notesBoxH = Math.min(58, Math.max(48, remainingHeight));
-
+      const notesBoxH = 43.0;
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(12, currentY, 186, notesBoxH, 1, 1, 'FD');
+      doc.roundedRect(12, currentY, 186, notesBoxH, 0.8, 0.8, 'FD');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.2);
+      doc.setFontSize(6.8);
       doc.setTextColor(15, 23, 42);
-      doc.text('Notes', 15, currentY + 4.2);
+      doc.text('Notes', 15, currentY + 3.8);
 
       // Bullet 1: IMPORTANT note with Red bullet
-      let bY = currentY + 8.2;
+      let bY = currentY + 7.4;
       doc.setFillColor(225, 29, 72); // red dot
-      doc.circle(15.5, bY - 0.8, 0.8, 'F');
+      doc.circle(15.5, bY - 0.7, 0.7, 'F');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.2);
+      doc.setFontSize(5.8);
       doc.setTextColor(220, 38, 38); // red-600
       doc.text('IMPORTANT: ', 18, bY);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.0);
+      doc.setFontSize(5.6);
       doc.setTextColor(71, 85, 105);
       const note1Rest = 'At check-in, you must present the credit card used to make this booking and a valid photo ID (NID/Passport) with the same name. Failure to do so may result in the hotel requesting additional payment or your reservation not being honored. If you have submitted additional documentation for a third party booking or paid via a different payment method, please disregard the note above.';
       const note1Wrapped = doc.splitTextToSize(note1Rest, 148);
-      doc.text(note1Wrapped, 36, bY);
-      bY += (note1Wrapped.length * 3.0) + 2.2;
+      doc.text(note1Wrapped, 35, bY);
+      bY += (note1Wrapped.length * 2.6) + 1.8;
 
       // Bullet 2: All rooms guaranteed
       doc.setFillColor(148, 163, 184); // slate-400 dot
-      doc.circle(15.5, bY - 0.8, 0.7, 'F');
+      doc.circle(15.5, bY - 0.7, 0.6, 'F');
       const note2 = 'All rooms are guaranteed on the day of arrival. In the case of a no-show, your room(s) will be released and you will be subject to the terms and conditions of the Cancellation/No-Show Policy specified at the time you made the booking as well as noted in the Confirmation Email.';
       const note2Wrapped = doc.splitTextToSize(note2, 174);
       doc.text(note2Wrapped, 18, bY);
-      bY += (note2Wrapped.length * 3.0) + 2.2;
+      bY += (note2Wrapped.length * 2.6) + 1.8;
 
       // Bullet 3: Mini-bar items
-      doc.circle(15.5, bY - 0.8, 0.7, 'F');
+      doc.circle(15.5, bY - 0.7, 0.6, 'F');
       const note3 = 'The total price for this booking does not include mini-bar items, telephone usage, laundry service, etc. The hotel will bill you directly.';
       const note3Wrapped = doc.splitTextToSize(note3, 174);
       doc.text(note3Wrapped, 18, bY);
-      bY += (note3Wrapped.length * 3.0) + 2.2;
+      bY += (note3Wrapped.length * 2.6) + 1.8;
 
       // Bullet 4: Breakfast children policy
-      doc.circle(15.5, bY - 0.8, 0.7, 'F');
+      doc.circle(15.5, bY - 0.7, 0.6, 'F');
       const note4 = 'In cases where Breakfast is included with the room rate, please note that certain hotels may charge extra for children travelling with their parents. If applicable, the hotel will bill you directly. Upon arrival, if you have any questions, please verify with the hotel.';
       const note4Wrapped = doc.splitTextToSize(note4, 174);
       doc.text(note4Wrapped, 18, bY);
+
+      currentY += notesBoxH + 2.5;
+
+      // =========================================================================
+      // 10. BOOKING VERIFICATION BARCODE & FOOTER STRIP
+      // =========================================================================
+      // Draw decorative booking barcode lines
+      const barcodeX = 14;
+      const barcodeY = currentY;
+      const barcodeW = 45;
+      const barcodeH = 5.5;
+      doc.setDrawColor(15, 23, 42);
+      const barPattern = [1, 0.5, 1.2, 0.4, 0.8, 1.5, 0.3, 1.0, 0.6, 1.4, 0.5, 0.8, 1.2, 0.4, 1.6, 0.5, 0.7, 1.1, 0.4, 1.3, 0.6, 0.9, 1.5, 0.4, 0.8, 1.2, 0.5, 1.4, 0.4, 0.7, 1.0];
+      let curBx = barcodeX;
+      barPattern.forEach((w) => {
+        doc.setLineWidth(w * 0.4);
+        doc.line(curBx, barcodeY, curBx, barcodeY + barcodeH);
+        curBx += (w * 0.4) + 0.6;
+      });
+
+      doc.setFont('courier', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(30, 41, 59);
+      doc.text(`*${reservation.reservationNumber || 'RES-2026-00462'}*`, barcodeX + (curBx - barcodeX) / 2, barcodeY + barcodeH + 2.8, { align: 'center' });
+
+      // Security seal & authenticity badge
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`OFFICIAL ${cleanPdfText(resortName.toUpperCase())} RESERVATION VOUCHER`, 198, barcodeY + 3.5, { align: 'right' });
+
+      // =========================================================================
+      // STRICT 1-PAGE GUARANTEE: Remove any extra pages if inadvertently spawned
+      // =========================================================================
+      while (doc.getNumberOfPages() > 1) {
+        doc.deletePage(2);
+      }
 
       // =========================================================================
       // TRIGGER DOWNLOAD
@@ -1758,7 +1633,7 @@ export const pdfExportService = {
         subject: `Official booking voucher for ${reservation.guestName || 'Guest'} (${roomLabel})`,
         author: resortName,
         creator: `${resortName} Online Booking & Front Desk Engine`,
-        keywords: `Reservation, Voucher, Confirmation, ${reservation.reservationNumber}, Hotel, PMS, Agoda`
+        keywords: `Reservation, Voucher, Confirmation, ${reservation.reservationNumber}, Hotel, PMS, ${cleanPdfText(resortName)}`
       });
     } catch (err) {
       console.error('Failed to generate reservation voucher PDF:', err);

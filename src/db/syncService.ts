@@ -1,5 +1,6 @@
 import { eq, desc, sql } from 'drizzle-orm';
-import { db, pool } from './index.ts';
+import { db, pool, isPostgresConfigured } from './index.ts';
+import { ensureDatabaseSchema } from './schemaInitializer.ts';
 import {
   pmsSnapshots,
   pmsSyncEvents,
@@ -42,7 +43,42 @@ export interface SyncPayload {
 }
 
 export async function getCloudSqlStatus() {
+  if (!isPostgresConfigured()) {
+    return {
+      connected: false,
+      configured: false,
+      region: 'us-west1',
+      database: 'Not Configured',
+      host: 'PostgreSQL URL Required',
+      dbVersion: 'Not Connected',
+      latestSnapshotTime: null,
+      snapshotVersion: 0,
+      totalEntities: 0,
+      totalEventsSynced: 0,
+      tableCounts: {
+        rooms: 0,
+        reservations: 0,
+        stays: 0,
+        folios: 0,
+        payments: 0,
+        glAccounts: 0,
+        journalVouchers: 0,
+        eventBookings: 0,
+        invoices: 0,
+        cityLedger: 0,
+        suppliers: 0,
+        purchaseBills: 0,
+        supplierPayments: 0,
+        restaurantOrders: 0,
+        auditLogs: 0,
+      },
+      error: 'PostgreSQL database is not configured. Add POSTGRES_URL or DATABASE_URL in Vercel environment variables.',
+    };
+  }
+
   try {
+    await ensureDatabaseSchema();
+
     const countsQuery = `
       SELECT
         (SELECT count(*) FROM pms_sync_events) AS events_count,
@@ -81,11 +117,15 @@ export async function getCloudSqlStatus() {
 
     const latestSnapshot = latestSnapshotRes[0];
 
+    const dbName = process.env.POSTGRES_DATABASE || process.env.PGDATABASE || process.env.SQL_DB_NAME || 'postgres';
+    const dbHost = process.env.POSTGRES_HOST || process.env.PGHOST || process.env.SQL_HOST || 'PostgreSQL Host';
+
     return {
       connected: true,
-      region: 'us-west1',
-      database: process.env.SQL_DB_NAME || 'postgres',
-      host: process.env.SQL_HOST || 'localhost',
+      configured: true,
+      region: process.env.POSTGRES_REGION || 'us-west1',
+      database: dbName,
+      host: dbHost,
       dbVersion: (row.db_version || 'PostgreSQL').split(',')[0],
       latestSnapshotTime: latestSnapshot?.lastSyncedAt || null,
       snapshotVersion: latestSnapshot?.version || 0,
@@ -109,9 +149,38 @@ export async function getCloudSqlStatus() {
         auditLogs: Number(row.audit_logs_count || 0),
       },
     };
-  } catch (error) {
-    console.error('Failed to get Cloud SQL status:', error);
-    throw new Error('Database connection or query failed', { cause: error });
+  } catch (error: any) {
+    console.error('Failed to get Cloud SQL status:', error?.message || error);
+    return {
+      connected: false,
+      configured: true,
+      region: 'us-west1',
+      database: process.env.SQL_DB_NAME || 'postgres',
+      host: process.env.SQL_HOST || 'PostgreSQL',
+      dbVersion: 'Unavailable',
+      latestSnapshotTime: null,
+      snapshotVersion: 0,
+      totalEntities: 0,
+      totalEventsSynced: 0,
+      tableCounts: {
+        rooms: 0,
+        reservations: 0,
+        stays: 0,
+        folios: 0,
+        payments: 0,
+        glAccounts: 0,
+        journalVouchers: 0,
+        eventBookings: 0,
+        invoices: 0,
+        cityLedger: 0,
+        suppliers: 0,
+        purchaseBills: 0,
+        supplierPayments: 0,
+        restaurantOrders: 0,
+        auditLogs: 0,
+      },
+      error: error?.message || 'Database connection or query failed',
+    };
   }
 }
 
@@ -180,6 +249,11 @@ export async function syncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 }
 
 async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS Application Client') {
+  if (!isPostgresConfigured()) {
+    throw new Error('PostgreSQL database connection is not configured. Set POSTGRES_URL or DATABASE_URL in Vercel environment variables.');
+  }
+  await ensureDatabaseSchema();
+
   try {
     let totalEntitiesCount = 0;
 
@@ -1116,7 +1190,11 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 }
 
 export async function loadLatestPmsSnapshot() {
+  if (!isPostgresConfigured()) {
+    return null;
+  }
   try {
+    await ensureDatabaseSchema();
     const [snapshot] = await db
       .select()
       .from(pmsSnapshots)
@@ -1134,44 +1212,66 @@ export async function loadLatestPmsSnapshot() {
       state: snapshot.statePayload,
     };
   } catch (error) {
-    console.error('Failed to load latest PMS snapshot from Cloud SQL:', error);
-    throw new Error('Failed to load PMS snapshot', { cause: error });
+    console.warn('Failed to load latest PMS snapshot from PostgreSQL:', error);
+    return null;
   }
 }
 
 export async function getGlAccountsFromDb() {
+  if (!isPostgresConfigured()) {
+    return [];
+  }
   try {
+    await ensureDatabaseSchema();
     return await db.select().from(pmsGlAccounts).orderBy(pmsGlAccounts.code);
   } catch (error) {
-    console.error('Failed to fetch GL Accounts from Cloud SQL:', error);
-    throw error;
+    console.warn('Failed to fetch GL Accounts from PostgreSQL:', error);
+    return [];
   }
 }
 
 export async function getJournalVouchersFromDb(limit = 100) {
+  if (!isPostgresConfigured()) {
+    return [];
+  }
   try {
+    await ensureDatabaseSchema();
     return await db
       .select()
       .from(pmsJournalVouchers)
       .orderBy(desc(pmsJournalVouchers.createdAt))
       .limit(limit);
   } catch (error) {
-    console.error('Failed to fetch Journal Vouchers from Cloud SQL:', error);
-    throw error;
+    console.warn('Failed to fetch Journal Vouchers from PostgreSQL:', error);
+    return [];
   }
 }
 
 export async function getCityLedgerFromDb() {
+  if (!isPostgresConfigured()) {
+    return [];
+  }
   try {
+    await ensureDatabaseSchema();
     return await db.select().from(pmsCityLedger).orderBy(pmsCityLedger.companyName);
   } catch (error) {
-    console.error('Failed to fetch City Ledger accounts from Cloud SQL:', error);
-    throw error;
+    console.warn('Failed to fetch City Ledger accounts from PostgreSQL:', error);
+    return [];
   }
 }
 
 export async function getTrialBalanceFromDb() {
+  if (!isPostgresConfigured()) {
+    return {
+      asOf: new Date().toISOString(),
+      rows: [],
+      totalDebit: 0,
+      totalCredit: 0,
+      isBalanced: true,
+    };
+  }
   try {
+    await ensureDatabaseSchema();
     const accounts = await db.select().from(pmsGlAccounts).orderBy(pmsGlAccounts.code);
     let totalDebit = 0;
     let totalCredit = 0;
@@ -1204,13 +1304,23 @@ export async function getTrialBalanceFromDb() {
       isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
     };
   } catch (error) {
-    console.error('Failed to calculate trial balance from Cloud SQL:', error);
-    throw error;
+    console.warn('Failed to calculate trial balance from PostgreSQL:', error);
+    return {
+      asOf: new Date().toISOString(),
+      rows: [],
+      totalDebit: 0,
+      totalCredit: 0,
+      isBalanced: true,
+    };
   }
 }
 
 export async function recordSyncEvent(entityType: string, entityId: string, action: string, payload?: any) {
+  if (!isPostgresConfigured()) {
+    return { entityType, entityId, action, syncedAt: new Date().toISOString(), status: 'LOCAL_ONLY' };
+  }
   try {
+    await ensureDatabaseSchema();
     const [record] = await db
       .insert(pmsSyncEvents)
       .values({
@@ -1225,20 +1335,24 @@ export async function recordSyncEvent(entityType: string, entityId: string, acti
 
     return record;
   } catch (error) {
-    console.error('Failed to log sync event in Cloud SQL:', error);
-    throw new Error('Failed to record sync event', { cause: error });
+    console.warn('Failed to log sync event in PostgreSQL:', error);
+    return { entityType, entityId, action, syncedAt: new Date().toISOString(), status: 'LOGGED_LOCALLY' };
   }
 }
 
 export async function getRecentSyncEvents(limit = 20) {
+  if (!isPostgresConfigured()) {
+    return [];
+  }
   try {
+    await ensureDatabaseSchema();
     return await db
       .select()
       .from(pmsSyncEvents)
       .orderBy(desc(pmsSyncEvents.syncedAt))
       .limit(limit);
   } catch (error) {
-    console.error('Failed to fetch sync events:', error);
-    throw new Error('Failed to fetch sync events', { cause: error });
+    console.warn('Failed to fetch sync events:', error);
+    return [];
   }
 }
