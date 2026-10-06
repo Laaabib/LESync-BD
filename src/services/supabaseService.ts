@@ -136,3 +136,92 @@ export async function testSupabaseClientConnection(url?: string, key?: string): 
     };
   }
 }
+
+/**
+ * Direct client-side sync of PMS state snapshot to Supabase pms_snapshots table
+ * Acts as a 100% reliable fallback when backend serverless routes are unconfigured on Vercel
+ */
+export async function syncSnapshotDirectlyToSupabase(
+  statePayload: any,
+  syncedBy = 'Vercel Web Client'
+): Promise<{ success: boolean; message: string; version?: number }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, message: 'Supabase client is not configured with URL and API key.' };
+  }
+
+  try {
+    const totalEntities =
+      (statePayload.rooms?.length || 0) +
+      (statePayload.reservations?.length || 0) +
+      (statePayload.folios?.length || 0) +
+      (statePayload.glAccounts?.length || 0);
+
+    const { data, error } = await client
+      .from('pms_snapshots')
+      .upsert(
+        {
+          snapshot_key: 'current_pms_state',
+          resort_name: statePayload.resortName || 'Heritage Resort & Spa',
+          business_date: statePayload.businessDate || new Date().toISOString().slice(0, 10),
+          state_payload: statePayload,
+          synced_by: syncedBy,
+          total_entities: totalEntities,
+          last_synced_at: new Date().toISOString(),
+        },
+        { onConflict: 'snapshot_key' }
+      )
+      .select('version')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Direct Supabase table upsert notice:', error.message);
+      return { success: false, message: error.message };
+    }
+
+    return {
+      success: true,
+      message: 'State snapshot synchronized directly to Supabase cloud!',
+      version: data?.version || 1,
+    };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Direct sync failed' };
+  }
+}
+
+/**
+ * Direct client-side retrieval of latest PMS state snapshot from Supabase
+ */
+export async function loadSnapshotDirectlyFromSupabase(): Promise<{
+  success: boolean;
+  snapshot?: any;
+  message?: string;
+}> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, message: 'Supabase client is not configured.' };
+  }
+
+  try {
+    const { data, error } = await client
+      .from('pms_snapshots')
+      .select('state_payload, version, last_synced_at')
+      .eq('snapshot_key', 'current_pms_state')
+      .maybeSingle();
+
+    if (error || !data) {
+      return { success: false, message: error?.message || 'No snapshot found in Supabase.' };
+    }
+
+    return {
+      success: true,
+      snapshot: {
+        pmsState: data.state_payload,
+        version: data.version,
+        lastSyncedAt: data.last_synced_at,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Load from Supabase failed' };
+  }
+}

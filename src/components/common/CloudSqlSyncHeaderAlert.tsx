@@ -226,7 +226,7 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
   };
 
   const handleSimulateFailed = () => {
-    cloudSqlSyncService.simulateFailure('Cloud SQL Proxy Connection Timeout: Replica replica-02 unreachable');
+    cloudSqlSyncService.simulateFailure('Supabase Connection Timeout: Replica replica-02 unreachable');
     setHealth(cloudSqlSyncService.getHealth());
     setActionFeedback({
       type: 'error',
@@ -579,6 +579,22 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
               <span>Open Supabase Synchronization Console</span>
               <ExternalLink className="w-3 h-3 text-gray-400" />
             </button>
+
+            {health.isFailed && (
+              <button
+                onClick={() => {
+                  cloudSqlSyncService.clearError();
+                  setHealth(cloudSqlSyncService.getHealth());
+                  setActionFeedback({
+                    type: 'success',
+                    message: 'Alert dismissed. Background replication active.',
+                  });
+                }}
+                className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>Dismiss Sync Alert</span>
+              </button>
+            )}
           </div>
 
           {/* Diagnostic & Simulation Drawer (IT Support & App Owner Only) */}

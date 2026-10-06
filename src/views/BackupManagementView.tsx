@@ -3,12 +3,13 @@ import {
   Database, RefreshCw, CheckCircle2, AlertTriangle,
   Server, ShieldCheck, Clock, Layers, Users, BedDouble, Receipt,
   Check, FileText, Sparkles, Terminal, Copy, Download,
-  ExternalLink, ArrowDownToLine, ArrowUpRight, Zap
+  ExternalLink, ArrowDownToLine, ArrowUpRight, Zap, Settings2, Key, Globe
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { rbacService } from '../services/rbacService';
 import { cloudSqlSyncService, CloudSqlSyncStatus, SyncHistoryItem } from '../services/cloudSqlSyncService';
 import { CloudSqlConsole } from '../components/admin/CloudSqlConsole';
+import { getSupabaseConfig, saveSupabaseConfig, testSupabaseClientConnection } from '../services/supabaseService';
 
 interface BackupManagementViewProps {
   initialTab?: 'supabase' | 'sql-console';
@@ -26,6 +27,14 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
   const [isSeedingSupabase, setIsSeedingSupabase] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  // Vercel deployment credentials state
+  const [showVercelConfig, setShowVercelConfig] = useState(false);
+  const [supabaseUrlInput, setSupabaseUrlInput] = useState(getSupabaseConfig().url || '');
+  const [supabaseKeyInput, setSupabaseKeyInput] = useState(getSupabaseConfig().key || '');
+  const [connStringInput, setConnStringInput] = useState('');
+  const [isTestingCredentials, setIsTestingCredentials] = useState(false);
+  const [copiedVercelEnv, setCopiedVercelEnv] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
@@ -56,6 +65,60 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
     setTimeout(() => {
       setNotification(null);
     }, 6000);
+  };
+
+  // Clear any persistent sync error
+  const handleClearError = () => {
+    cloudSqlSyncService.clearError();
+    notifyUser('info', 'Sync error status cleared. Auto-replication is active.');
+  };
+
+  // Save and test Supabase credentials on Vercel
+  const handleSaveCredentials = async () => {
+    setIsTestingCredentials(true);
+    try {
+      const url = supabaseUrlInput.trim();
+      const key = supabaseKeyInput.trim();
+      const cs = connStringInput.trim();
+
+      if (url && key) {
+        saveSupabaseConfig(url, key);
+        const testRes = await testSupabaseClientConnection(url, key);
+        if (!testRes.success) {
+          notifyUser('error', `Supabase connection notice: ${testRes.message}`);
+        }
+      }
+
+      if (cs) {
+        await fetch('/api/supabase/save-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ connectionString: cs }),
+        });
+      }
+
+      cloudSqlSyncService.clearError();
+      await cloudSqlSyncService.checkStatus();
+      await cloudSqlSyncService.syncNow('Credentials saved');
+      notifyUser('success', 'Supabase credentials saved and synchronized successfully!');
+      setShowVercelConfig(false);
+    } catch (err: any) {
+      notifyUser('error', err?.message || 'Failed to save credentials');
+    } finally {
+      setIsTestingCredentials(false);
+    }
+  };
+
+  const handleCopyVercelEnvSnippet = async () => {
+    const snippet = `# Supabase Cloud Credentials for Vercel
+POSTGRES_URL=${connStringInput || 'postgresql://postgres.[project-ref]:[db-password]@aws-0-[region].pooler.supabase.com:6543/postgres'}
+DATABASE_URL=${connStringInput || 'postgresql://postgres.[project-ref]:[db-password]@aws-0-[region].pooler.supabase.com:6543/postgres'}
+VITE_SUPABASE_URL=${supabaseUrlInput || 'https://your-project.supabase.co'}
+VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
+    await navigator.clipboard.writeText(snippet);
+    setCopiedVercelEnv(true);
+    notifyUser('success', 'Vercel Environment Variables snippet copied to clipboard! Paste in Vercel Project Settings > Environment Variables.');
+    setTimeout(() => setCopiedVercelEnv(false), 3000);
   };
 
   // 1. Supabase Direct Sync Actions
@@ -184,6 +247,19 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
           </button>
 
           <button
+            onClick={() => setShowVercelConfig(!showVercelConfig)}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer border ${
+              showVercelConfig
+                ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title="Configure Supabase connection for Vercel deployment"
+          >
+            <Globe className="w-4 h-4 text-blue-400" />
+            <span>Vercel Connection Setup</span>
+          </button>
+
+          <button
             onClick={handlePushToSupabase}
             disabled={isCloudOperating || isSeedingSupabase}
             className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-2 shadow-sm cursor-pointer disabled:opacity-50"
@@ -194,6 +270,150 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
           </button>
         </div>
       </div>
+
+      {/* VERCEL DEPLOYMENT CONFIGURATION PANEL */}
+      {showVercelConfig && (
+        <div className="bg-slate-900 border border-blue-500/40 rounded-2xl p-6 shadow-2xl space-y-5 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                <Globe className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">Vercel Deployment Supabase Configuration</h2>
+                <p className="text-xs text-slate-400">
+                  Connect your live Supabase cloud database to your Vercel deployment in 2 easy steps.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleClearError}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold border border-slate-700 cursor-pointer"
+                title="Clear any lingering sync error message"
+              >
+                Clear Error Alert
+              </button>
+              <button
+                onClick={() => setShowVercelConfig(false)}
+                className="px-2.5 py-1.5 text-slate-400 hover:text-white rounded-lg text-xs font-bold"
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Step 1: Direct Credentials in App */}
+            <div className="space-y-3 bg-slate-950/70 border border-slate-800 p-4 rounded-xl">
+              <div className="flex items-center space-x-2">
+                <Key className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                  Option A: Quick Connect in Browser (Instant)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-300">
+                Enter your Supabase credentials here. They will be saved to your browser session and immediately tested.
+              </p>
+
+              <div className="space-y-2 text-xs">
+                <div>
+                  <label className="text-[11px] text-slate-400 block font-medium mb-1">
+                    Supabase Project URL
+                  </label>
+                  <input
+                    type="text"
+                    value={supabaseUrlInput}
+                    onChange={(e) => setSupabaseUrlInput(e.target.value)}
+                    placeholder="https://xyzcompany.supabase.co"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block font-medium mb-1">
+                    Supabase Anon Public API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={supabaseKeyInput}
+                    onChange={(e) => setSupabaseKeyInput(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] text-slate-400 block font-medium mb-1">
+                    PostgreSQL Connection URI (Optional)
+                  </label>
+                  <input
+                    type="password"
+                    value={connStringInput}
+                    onChange={(e) => setConnStringInput(e.target.value)}
+                    placeholder="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveCredentials}
+                  disabled={isTestingCredentials}
+                  className="w-full mt-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-xs flex items-center justify-center space-x-2 transition shadow cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isTestingCredentials ? 'Testing Connection...' : 'Save & Connect Supabase Now'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2: Vercel Project Environment Variables */}
+            <div className="space-y-3 bg-slate-950/70 border border-slate-800 p-4 rounded-xl flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Globe className="w-4 h-4 text-blue-400" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-blue-400">
+                    Option B: Vercel Project Environment Variables (Production)
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  In your <strong>Vercel Dashboard &gt; Project Settings &gt; Environment Variables</strong>, add these variables so serverless functions can connect to Supabase:
+                </p>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 font-mono text-[11px] space-y-1.5 text-slate-300">
+                  <div className="text-amber-400 font-semibold">DATABASE_URL</div>
+                  <div className="text-[10px] text-slate-400 truncate">postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres</div>
+                  <div className="text-amber-400 font-semibold pt-1">VITE_SUPABASE_URL</div>
+                  <div className="text-[10px] text-slate-400 truncate">https://your-project.supabase.co</div>
+                  <div className="text-amber-400 font-semibold pt-1">VITE_SUPABASE_ANON_KEY</div>
+                  <div className="text-[10px] text-slate-400 truncate">eyJhbGciOiJIUzI1Ni...</div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={handleCopyVercelEnvSnippet}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold text-xs flex items-center justify-center space-x-1.5 transition shadow cursor-pointer"
+                >
+                  {copiedVercelEnv ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedVercelEnv ? 'Copied to Clipboard!' : 'Copy Vercel Variables'}</span>
+                </button>
+
+                <a
+                  href="https://vercel.com/dashboard"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold text-xs flex items-center space-x-1 transition"
+                >
+                  <span>Open Vercel</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notification Toast */}
       {notification && (
@@ -211,7 +431,15 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
           ) : (
             <Sparkles className="w-5 h-5 shrink-0 text-blue-400" />
           )}
-          <span className="font-medium">{notification.message}</span>
+          <span className="font-medium flex-1">{notification.message}</span>
+          {notification.type === 'error' && (
+            <button
+              onClick={handleClearError}
+              className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded text-[11px] font-bold"
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
 

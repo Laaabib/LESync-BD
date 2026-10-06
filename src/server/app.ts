@@ -35,19 +35,26 @@ export function createApp(): express.Express {
   const app = express();
 
   // Normalize URL prefix for backend endpoints:
-  // In Vercel serverless functions, rewrites can deliver paths like /cloudsql/status or /health.
+  // In Vercel serverless functions, rewrites can deliver paths like /api?path=supabase/status or /supabase/status.
   // Only normalize known backend route roots, never touching Vite assets (/src, /@vite, /node_modules, etc.).
   app.use((req, res, next) => {
-    const rawUrl = req.url || '';
-    if (
-      rawUrl.startsWith('/supabase') ||
-      rawUrl.startsWith('/cloudsql') ||
-      rawUrl.startsWith('/accounts') ||
-      rawUrl.startsWith('/biometric') ||
-      rawUrl === '/health' ||
-      rawUrl.startsWith('/health?')
-    ) {
-      req.url = '/api' + rawUrl;
+    // If Vercel passed query path (e.g. ?path=supabase/status)
+    const qPath = req.query?.path || req.query?.__path;
+    if (qPath) {
+      const cleanPath = Array.isArray(qPath) ? qPath.join('/') : String(qPath);
+      req.url = cleanPath.startsWith('/') ? '/api' + cleanPath : '/api/' + cleanPath;
+    } else {
+      const rawUrl = req.url || '';
+      if (
+        rawUrl.startsWith('/supabase') ||
+        rawUrl.startsWith('/cloudsql') ||
+        rawUrl.startsWith('/accounts') ||
+        rawUrl.startsWith('/biometric') ||
+        rawUrl === '/health' ||
+        rawUrl.startsWith('/health?')
+      ) {
+        req.url = '/api' + rawUrl;
+      }
     }
     next();
   });

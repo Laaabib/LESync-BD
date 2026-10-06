@@ -1,5 +1,12 @@
 import { pmsService } from './pmsService';
 import { PmsDatabaseState } from './mockPmsDatabase';
+import {
+  getSupabaseConfig,
+  getSupabaseClient,
+  syncSnapshotDirectlyToSupabase,
+  loadSnapshotDirectlyFromSupabase,
+  testSupabaseClientConnection,
+} from './supabaseService';
 
 export type SupabaseHealthState = 'healthy' | 'syncing' | 'failed' | 'overdue';
 
@@ -247,10 +254,12 @@ class SupabaseSyncService {
       try {
         data = await safeJsonFetch<any>('/api/supabase/status', {}, 10000);
       } catch {
-        data = await safeJsonFetch<any>('/api/cloudsql/status', {}, 10000);
+        try {
+          data = await safeJsonFetch<any>('/api/cloudsql/status', {}, 10000);
+        } catch {}
       }
 
-      if (data) {
+      if (data && data.connected) {
         const isDbConnected = Boolean(data.connected);
         this.currentStatus = {
           ...this.currentStatus,
@@ -274,10 +283,52 @@ class SupabaseSyncService {
             localStorage.setItem('pms_supabase_last_sync', data.latestSnapshotTime);
           }
         }
+      } else {
+        // Direct Supabase Client check (fallback for pure Vercel deployments where backend env vars may differ)
+        const clientConfig = getSupabaseConfig();
+        if (clientConfig.isConfigured) {
+          const directCheck = await testSupabaseClientConnection();
+          if (directCheck.success) {
+            this.currentStatus = {
+              ...this.currentStatus,
+              connected: true,
+              configured: true,
+              provider: 'Supabase',
+              host: clientConfig.url.replace(/^https?:\/\//, ''),
+              database: 'postgres',
+              error: null,
+            };
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('pms_supabase_last_error');
+            }
+          } else {
+            this.currentStatus.connected = false;
+            this.currentStatus.error = directCheck.message;
+          }
+        } else {
+          this.currentStatus.connected = false;
+          // Helpful guidance instead of crash
+          this.currentStatus.error = 'Supabase credentials not configured in Vercel. Set DATABASE_URL or enter credentials.';
+        }
       }
     } catch (err: any) {
-      this.currentStatus.connected = false;
-      this.currentStatus.error = err?.message || 'Supabase unreachable';
+      // Fallback check
+      const clientConfig = getSupabaseConfig();
+      if (clientConfig.isConfigured) {
+        const directCheck = await testSupabaseClientConnection();
+        if (directCheck.success) {
+          this.currentStatus.connected = true;
+          this.currentStatus.configured = true;
+          this.currentStatus.provider = 'Supabase',
+          this.currentStatus.error = null;
+        } else {
+          this.currentStatus.connected = false;
+          this.currentStatus.error = err?.message || 'Supabase unreachable';
+        }
+      } else {
+        this.currentStatus.connected = false;
+        this.currentStatus.error = err?.message || 'Supabase unreachable';
+      }
     }
 
     this.notifyListeners();
@@ -298,21 +349,29 @@ class SupabaseSyncService {
       const statePayload = pmsService.getState();
 
       let result: any = null;
+      let serverSyncWorked = false;
+
+      // 1. Attempt Serverless Backend sync
       try {
         result = await safeJsonFetch<any>('/api/supabase/sync-all', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(statePayload),
         });
+        if (result?.success) serverSyncWorked = true;
       } catch {
-        result = await safeJsonFetch<any>('/api/cloudsql/sync-all', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(statePayload),
-        });
+        try {
+          result = await safeJsonFetch<any>('/api/cloudsql/sync-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(statePayload),
+          });
+          if (result?.success) serverSyncWorked = true;
+        } catch {}
       }
 
-      if (result?.success) {
+      // 2. If server sync succeeded:
+      if (serverSyncWorked && result?.success) {
         const syncTimestamp = result.timestamp || new Date().toISOString();
         this.currentStatus.lastSyncedAt = syncTimestamp;
         this.currentStatus.lastSyncStatus = 'success';
@@ -331,9 +390,36 @@ class SupabaseSyncService {
 
         await this.checkStatus();
         return { success: true, totalEntities: result.totalEntities };
-      } else {
-        throw new Error(result?.error || 'Supabase sync failed');
       }
+
+      // 3. Fallback: Direct Client-Side Supabase Sync (for Vercel pure frontend uploads)
+      const clientConfig = getSupabaseConfig();
+      if (clientConfig.isConfigured) {
+        const directResult = await syncSnapshotDirectlyToSupabase(statePayload, 'Vercel Browser Client');
+        if (directResult.success) {
+          const syncTimestamp = new Date().toISOString();
+          this.currentStatus.lastSyncedAt = syncTimestamp;
+          this.currentStatus.lastSyncStatus = 'success';
+          this.currentStatus.lastErrorMessage = null;
+          this.currentStatus.lastFailedAt = null;
+          this.currentStatus.error = null;
+          this.currentStatus.connected = true;
+          this.currentStatus.configured = true;
+          this.pendingChanges = false;
+
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('pms_supabase_last_sync', syncTimestamp);
+            localStorage.removeItem('pms_supabase_last_error');
+            localStorage.removeItem('pms_supabase_last_failed_at');
+          }
+
+          return { success: true, message: 'Synchronized directly to Supabase cloud snapshot.' };
+        }
+      }
+
+      // 4. If both failed, provide clean guidance
+      const failReason = result?.error || 'Database connection is not configured on Vercel. Set POSTGRES_URL in Vercel Environment Variables or enter Supabase credentials.';
+      throw new Error(failReason);
     } catch (error: any) {
       const errMsg = error?.message || 'Synchronization failed';
       const failTimestamp = new Date().toISOString();
@@ -362,7 +448,9 @@ class SupabaseSyncService {
       try {
         data = await safeJsonFetch<any>('/api/supabase/load-latest');
       } catch {
-        data = await safeJsonFetch<any>('/api/cloudsql/load-latest');
+        try {
+          data = await safeJsonFetch<any>('/api/cloudsql/load-latest');
+        } catch {}
       }
 
       if (data?.success && data?.exists && data?.snapshot?.pmsState) {
@@ -370,10 +458,30 @@ class SupabaseSyncService {
         pmsService.restoreFullBackupPayload({ pmsDatabase: state });
         return { success: true, loaded: true, message: `Loaded snapshot v${data.snapshot.version || 1} from Supabase` };
       }
+
+      // Fallback: direct client load
+      const directData = await loadSnapshotDirectlyFromSupabase();
+      if (directData?.success && directData?.snapshot?.pmsState) {
+        pmsService.restoreFullBackupPayload({ pmsDatabase: directData.snapshot.pmsState as PmsDatabaseState });
+        return { success: true, loaded: true, message: `Loaded snapshot directly from Supabase` };
+      }
+
       return { success: true, loaded: false, message: 'No snapshot available in Supabase yet.' };
     } catch (err: any) {
       throw new Error(`Failed to load data from Supabase: ${err?.message || err}`);
     }
+  }
+
+  public clearError(): void {
+    this.currentStatus.error = null;
+    this.currentStatus.lastErrorMessage = null;
+    this.currentStatus.lastFailedAt = null;
+    this.currentStatus.lastSyncStatus = 'idle';
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('pms_supabase_last_error');
+      localStorage.removeItem('pms_supabase_last_failed_at');
+    }
+    this.notifyListeners();
   }
 
   public async loadLatestState(): Promise<{ success: boolean; loaded: boolean; message?: string }> {

@@ -6,15 +6,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api"
+      "destination": "/api?path=$1"
     },
     {
       "source": "/auth/(.*)",
-      "destination": "/api"
+      "destination": "/api?path=auth/$1"
     },
     {
       "source": "/iclock/(.*)",
-      "destination": "/api"
+      "destination": "/api?path=iclock/$1"
     },
     {
       "source": "/(.*)",
