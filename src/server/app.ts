@@ -236,18 +236,7 @@ export function createApp(): express.Express {
         return res.status(400).json({ success: false, error: 'Invalid PMS state payload' });
       }
 
-      if (!isPostgresConfigured()) {
-        return res.json({
-          success: true,
-          syncedToCloud: false,
-          version: 1,
-          totalEntities: 0,
-          timestamp: new Date().toISOString(),
-          message: 'Supabase PostgreSQL is not configured. Saved in local persistent mirror.',
-        });
-      }
-
-      const result = await syncEntirePmsState(statePayload);
+      const result = await syncEntirePmsState(statePayload, 'Web API Client');
       res.json(result);
     } catch (error: any) {
       console.error('Error syncing PMS state to Supabase:', error?.message || error);
