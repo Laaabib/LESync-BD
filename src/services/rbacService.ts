@@ -1988,7 +1988,7 @@ class RbacManager {
 
   /**
    * Determine whether a user is the App Owner or IT Support.
-   * Mandate: Only App Owner and IT Support can access Cloud SQL & Resort Network controls/popovers.
+   * Mandate: Only App Owner and IT Support can access Supabase & Resort Network controls/popovers.
    * General users are only shown the status icon indicating syncing or not syncing.
    */
   public isAppOwnerOrIT(user?: UserContext): boolean {

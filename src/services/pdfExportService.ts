@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas-pro';
 import { ReportQueryResult } from './reportingService';
 import { pmsService } from './pmsService';
+import { authService } from './authService';
 import { Invoice, Folio, Payment, Reservation, Stay, EventBooking, BanquetQuotation } from '../types/pms';
 
 export interface DocumentExportData {
@@ -990,12 +991,15 @@ export const pdfExportService = {
       const guest = reservation.guestId ? guests?.find(g => g.id === reservation.guestId) : undefined;
       const guestCode = guest?.guestCode || (reservation.guestId ? reservation.guestId.slice(-8).toUpperCase() : 'GST-2026-00103');
       const currentUser = pmsService.getState()?.currentUser;
+      const authUser = authService.getSession()?.user;
       const invalidStaffSources = ['Booking.com', 'Agoda', 'OTA', 'Website Engine', 'Front Desk Walk-in', 'Phone / Direct', 'Direct'];
-      const staffName = currentUser?.name && currentUser.name.trim().length > 0
-        ? currentUser.name
-        : (reservation.createdBy && !invalidStaffSources.includes(reservation.createdBy)
-          ? reservation.createdBy
-          : (currentUser?.email?.split('@')[0] || 'Front Desk Staff'));
+      const staffName = authUser?.name && authUser.name.trim().length > 0
+        ? authUser.name
+        : (currentUser?.name && currentUser.name.trim().length > 0
+          ? currentUser.name
+          : (reservation.createdBy && !invalidStaffSources.includes(reservation.createdBy)
+            ? reservation.createdBy
+            : (authUser?.email?.split('@')[0] || currentUser?.email?.split('@')[0] || 'Front Desk Staff')));
 
       const formatVoucherDate = (dateStr?: string) => {
         if (!dateStr) return '-';
@@ -1280,6 +1284,42 @@ export const pdfExportService = {
       doc.text('*For Full Promotion details and conditions see confirmation email', 198, rBoxY + 1.2, { align: 'right' });
 
       currentY = Math.max(leftColBottomY, rBoxY + 3.2);
+
+      // =========================================================================
+      // 3b. MULTI-ROOM & GROUP ALLOCATION BREAKDOWN (if multiple rooms allocated)
+      // =========================================================================
+      if (reservation.allocatedRooms && reservation.allocatedRooms.length > 1) {
+        const roomCount = reservation.allocatedRooms.length;
+        const groupLabel = reservation.groupName ? `Group: ${cleanPdfText(reservation.groupName)}` : 'Group / Multi-Room Allocation';
+        const breakdownTitle = `Multi-Room Allocation Breakdown (${roomCount} Rooms) • ${groupLabel}`;
+
+        doc.setFillColor(248, 250, 252); // slate-50
+        doc.setDrawColor(203, 213, 225);
+
+        const roomItems = reservation.allocatedRooms.map((ar: any, idx: number) => {
+          const rNum = ar.roomNumber ? `Room ${ar.roomNumber}` : `#${idx + 1}`;
+          const rType = ar.roomTypeName || reservation.roomTypeName || 'Deluxe';
+          const occ = `${ar.adults || 1}A${ar.children ? `, ${ar.children}C` : ''}`;
+          return `${rNum}: ${rType} (${occ})`;
+        });
+
+        const breakdownLines = doc.splitTextToSize(roomItems.join('   |   '), 180);
+        const cardH = 5.2 + (breakdownLines.length * 3.0);
+
+        doc.roundedRect(12, currentY, 186, cardH, 0.8, 0.8, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.2);
+        doc.setTextColor(15, 23, 42);
+        doc.text(breakdownTitle, 14, currentY + 3.4);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.8);
+        doc.setTextColor(71, 85, 105);
+        doc.text(breakdownLines, 14, currentY + 6.6);
+
+        currentY += cardH + 1.8;
+      }
 
       // =========================================================================
       // 4. STAY SCHEDULE & DATES BANNER (Check-in, Check-out & Status)

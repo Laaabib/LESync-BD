@@ -382,13 +382,20 @@ class RealtimeSyncManager {
       }
     }
 
-    // 3. Fallback: send via HTTP broadcast & Cloud SQL commit endpoint (when backend server is running)
+    // 3. Fallback: send via HTTP broadcast & Supabase commit endpoint (when backend server is running)
     try {
-      await fetch('/api/cloudsql/broadcast-sync', {
+      let res = await fetch('/api/supabase/broadcast-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      if (!res.ok && res.status === 404) {
+        await fetch('/api/cloudsql/broadcast-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
       return true;
     } catch {
       // In static / Vercel client-only hosting, local BroadcastChannel sync succeeded

@@ -112,7 +112,7 @@ async function startServer() {
             state: msg.state,
           });
 
-          // 2. Persist to Cloud SQL PostgreSQL database
+          // 2. Persist to Supabase PostgreSQL database
           if (msg.state) {
             try {
               const syncResult = await syncEntirePmsState(
@@ -129,7 +129,7 @@ async function startServer() {
                 })
               );
             } catch (err: any) {
-              console.error('Cloud SQL background sync error:', err?.message || err);
+              console.error('Supabase background sync error:', err?.message || err);
               ws.send(
                 JSON.stringify({
                   type: 'SYNC_CONFIRMATION',
@@ -194,7 +194,7 @@ async function startServer() {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Cloud SQL PMS Sync & Realtime Mesh Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Supabase PMS Sync & Realtime Mesh Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

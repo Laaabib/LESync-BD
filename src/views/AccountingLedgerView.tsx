@@ -128,7 +128,7 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isFiscalPeriodModalOpen, setIsFiscalPeriodModalOpen] = useState(false);
 
-  // Cloud SQL Backend State
+  // Supabase Backend State
   const [isCloudSqlModalOpen, setIsCloudSqlModalOpen] = useState(false);
   const [cloudSqlStatus, setCloudSqlStatus] = useState<CloudSqlSyncStatus>(cloudSqlSyncService.getStatus());
   const isDevOrIT = rbacService.isDeveloperOrIT();
@@ -418,11 +418,11 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
           {isDevOrIT && (
             <button
               onClick={() => setIsCloudSqlModalOpen(true)}
-              className="px-3 py-2 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors flex items-center gap-1.5 shadow-xs"
-              title="Cloud SQL PostgreSQL Backend Status & Accounts Sync"
+              className="px-3 py-2 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors flex items-center gap-1.5 shadow-xs"
+              title="Supabase PostgreSQL Backend Status & Accounts Sync"
             >
-              <Database className="w-3.5 h-3.5 text-blue-600" />
-              <span>Cloud SQL: {cloudSqlStatus.connected ? 'Active' : 'Offline'}</span>
+              <Database className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Supabase: {cloudSqlStatus.connected ? 'Active' : 'Offline'}</span>
               <span className={`w-2 h-2 rounded-full ${cloudSqlStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
             </button>
           )}
@@ -1418,7 +1418,7 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
         onClose={() => setIsFiscalPeriodModalOpen(false)}
       />
 
-      {/* Cloud SQL Synchronization Modal - Developer & IT only */}
+      {/* Supabase Synchronization Modal - Developer & IT only */}
       {isDevOrIT && (
         <CloudSqlSyncModal
           isOpen={isCloudSqlModalOpen}

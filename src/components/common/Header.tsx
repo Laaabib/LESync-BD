@@ -212,7 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Reports</span>
         </button>
 
-        {/* Resort Multi-Device Mesh & Cloud SQL Synchronization Pipe Indicator */}
+        {/* Resort Multi-Device Mesh & Supabase Synchronization Pipe Indicator */}
         <CloudSqlSyncHeaderAlert
           onOpenFullModal={() => setShowCloudSqlModal(true)}
           isAppOwnerOrIT={isAppOwnerOrIT}
@@ -251,7 +251,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               </div>
 
-              {/* Pinned Cloud SQL Sync Status Alert (if failed or overdue) */}
+              {/* Pinned Supabase Sync Status Alert (if failed or overdue) */}
               {hasSyncWarning && (
                 <div className={`p-3 border-b flex items-start justify-between ${
                   sqlHealth.isFailed ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-amber-50 border-amber-200 text-amber-900'
@@ -268,7 +268,7 @@ export const Header: React.FC<HeaderProps> = ({
                         <span className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${
                           sqlHealth.isFailed ? 'bg-rose-200 text-rose-800' : 'bg-amber-200 text-amber-800'
                         }`}>
-                          Cloud SQL
+                          Supabase
                         </span>
                       </div>
                       <p className="text-[11px] mt-0.5 opacity-90 leading-tight">
@@ -429,7 +429,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       )}
 
-      {/* Cloud SQL Synchronization Details & Manual Sync Modal - App Owner & IT only */}
+      {/* Supabase Synchronization Details & Manual Sync Modal - App Owner & IT only */}
       {isAppOwnerOrIT && (
         <CloudSqlSyncModal
           isOpen={showCloudSqlModal}

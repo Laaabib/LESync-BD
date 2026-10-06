@@ -9,6 +9,7 @@ import { Invoice, Stay, Folio, Payment, EventBooking, SystemSetting, Reservation
 import { pdfExportService, triggerPdfDownload } from '../../services/pdfExportService';
 import { ReportQueryResult } from '../../services/reportingService';
 import { pmsService } from '../../services/pmsService';
+import { authService } from '../../services/authService';
 
 export type PrintableDocumentType = 
   | 'invoice' 
@@ -515,6 +516,10 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
 
   // Staff name for voucher: prioritize logged-in app user's name (never display booking source like Booking.com)
   const appStaffName = (() => {
+    const authUser = authService.getSession()?.user;
+    if (authUser?.name && authUser.name.trim().length > 0) {
+      return authUser.name;
+    }
     if (currentUser?.name && currentUser.name.trim().length > 0) {
       return currentUser.name;
     }
@@ -524,6 +529,9 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
       if (!invalidSources.includes(cb)) {
         return cb;
       }
+    }
+    if (authUser?.email) {
+      return authUser.email.split('@')[0];
     }
     if (currentUser?.email) {
       return currentUser.email.split('@')[0];

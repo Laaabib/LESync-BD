@@ -166,12 +166,12 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
       const state = pmsService.getState();
       // 1. Broadcast immediately to all connected devices in the resort
       await realtimeSyncService.broadcastState(state, 'Header Manual Sync');
-      // 2. Persist to Cloud SQL PostgreSQL database
+      // 2. Persist to Supabase PostgreSQL database
       const success = await cloudSqlSyncService.syncNow('Header Quick Action');
       if (success) {
         setActionFeedback({
           type: 'success',
-          message: 'All resort department data synced to Cloud SQL and pushed to all active devices.',
+          message: 'All resort department data synced to Supabase and pushed to all active devices.',
         });
       } else {
         const latestStatus = cloudSqlSyncService.getStatus();
@@ -199,18 +199,18 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
       if (success) {
         setActionFeedback({
           type: 'success',
-          message: 'Authoritative data loaded from Cloud SQL and synced to local screen.',
+          message: 'Authoritative data loaded from Supabase and synced to local screen.',
         });
       } else {
         setActionFeedback({
           type: 'error',
-          message: 'Could not retrieve newer snapshot from Cloud SQL.',
+          message: 'Could not retrieve newer snapshot from Supabase.',
         });
       }
     } catch (err: any) {
       setActionFeedback({
         type: 'error',
-        message: err?.message || 'Failed to pull from Cloud SQL',
+        message: err?.message || 'Failed to pull from Supabase',
       });
     } finally {
       setIsSyncingAction(false);
@@ -270,10 +270,10 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
         }`}
         title={
           health.isFailed
-            ? `ALERT: Cloud SQL sync failed! ${health.detail}`
+            ? `ALERT: Supabase sync failed! ${health.detail}`
             : health.isOverdue
-            ? `WARNING: Cloud SQL sync overdue! ${health.detail}`
-            : `Resort Network & Cloud SQL Status: ${health.label} (Click for IT & Management Controls)`
+            ? `WARNING: Supabase sync overdue! ${health.detail}`
+            : `Resort Network & Supabase Status: ${health.label} (Click for IT & Management Controls)`
         }
       >
         {/* Dynamic Status Icon */}
@@ -295,7 +295,7 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
             ? 'Sync Overdue'
             : health.isSyncing
             ? 'Syncing...'
-            : 'Cloud SQL'}
+            : 'Supabase'}
         </span>
 
         {/* Realtime devices badge */}
@@ -380,9 +380,9 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
                 )}
               </div>
               <div>
-                <h4 className="text-xs font-bold leading-none">Resort Network & Cloud SQL</h4>
+                <h4 className="text-xs font-bold leading-none">Resort Network & Supabase</h4>
                 <p className="text-[10px] opacity-75 mt-0.5 font-mono">
-                  All Departments Synchronized • Cloud SQL Mirror
+                  All Departments Synchronized • Supabase Mirror
                 </p>
               </div>
             </div>
@@ -491,10 +491,10 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
             )}
           </div>
 
-          {/* Cloud SQL Sync Metrics */}
+          {/* Supabase Sync Metrics */}
           <div className="p-3.5 bg-gray-50/70 border-b border-gray-100 grid grid-cols-2 gap-2 text-xs">
             <div className="bg-white p-2.5 rounded-lg border border-gray-200 shadow-2xs">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Cloud SQL Sync</span>
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Supabase Sync</span>
               <span className="font-semibold text-gray-800 text-xs mt-0.5 block">
                 {health.formattedAgo}
               </span>
@@ -565,7 +565,7 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
               className="w-full py-2 px-3 rounded-lg text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-blue-50 border border-slate-200 flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <ArrowDownToLine className="w-3.5 h-3.5 text-blue-600" />
-              <span>Pull Latest Snapshot from Cloud SQL</span>
+              <span>Pull Latest Snapshot from Supabase</span>
             </button>
 
             <button
@@ -576,7 +576,7 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
               id="cloud-sql-open-console-btn"
               className="w-full py-1.5 px-3 rounded-lg text-xs font-medium text-gray-700 hover:text-blue-600 hover:bg-blue-50 border border-gray-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>Open Cloud SQL Synchronization Console</span>
+              <span>Open Supabase Synchronization Console</span>
               <ExternalLink className="w-3 h-3 text-gray-400" />
             </button>
           </div>

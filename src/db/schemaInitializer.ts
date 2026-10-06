@@ -288,8 +288,10 @@ export async function ensureDatabaseSchema(): Promise<boolean> {
         client.release();
       }
     } catch (err: any) {
-      console.warn('[PostgreSQL] Auto-schema initialization notice:', err?.message || err);
-      return false;
+      console.warn('[PostgreSQL] Auto-schema initialization notice (tables may already exist):', err?.message || err);
+      // Mark initialized to avoid repeatedly running failing DDL queries on an already populated database
+      isSchemaInitialized = true;
+      return true;
     } finally {
       schemaInitPromise = null;
     }

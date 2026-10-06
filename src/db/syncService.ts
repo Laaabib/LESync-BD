@@ -1,4 +1,4 @@
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, notInArray, or } from 'drizzle-orm';
 import { db, pool, isPostgresConfigured } from './index.ts';
 import { ensureDatabaseSchema } from './schemaInitializer.ts';
 import {
@@ -123,10 +123,10 @@ export async function getCloudSqlStatus() {
     return {
       connected: true,
       configured: true,
-      region: process.env.POSTGRES_REGION || 'us-west1',
+      region: process.env.SUPABASE_REGION || 'Supabase Cloud',
       database: dbName,
       host: dbHost,
-      dbVersion: (row.db_version || 'PostgreSQL').split(',')[0],
+      dbVersion: (row.db_version || 'PostgreSQL (Supabase)').split(',')[0],
       latestSnapshotTime: latestSnapshot?.lastSyncedAt || null,
       snapshotVersion: latestSnapshot?.version || 0,
       totalEntities: latestSnapshot?.totalEntities || 0,
@@ -150,13 +150,13 @@ export async function getCloudSqlStatus() {
       },
     };
   } catch (error: any) {
-    console.error('Failed to get Cloud SQL status:', error?.message || error);
+    console.error('Failed to get Supabase status:', error?.message || error);
     return {
       connected: false,
       configured: true,
-      region: 'us-west1',
+      region: 'Supabase Cloud',
       database: process.env.SQL_DB_NAME || 'postgres',
-      host: process.env.SQL_HOST || 'PostgreSQL',
+      host: process.env.SQL_HOST || 'Supabase',
       dbVersion: 'Unavailable',
       latestSnapshotTime: null,
       snapshotVersion: 0,
@@ -273,7 +273,7 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
     totalEntitiesCount += (fullState.supplierPayments?.length || 0);
     totalEntitiesCount += (fullState.restaurantOrders?.length || 0);
 
-    // CRITICAL: First and foremost, atomically write the full PMS state snapshot to Cloud SQL
+    // CRITICAL: First and foremost, atomically write the full PMS state snapshot to Supabase PostgreSQL
     // This guarantees 100% data preservation even if an edge-case row constraint occurs in relational tables
     const [existing] = await db
       .select()
@@ -347,6 +347,12 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
               },
             });
         }
+
+        // Prune deleted rooms from relational table if full active room inventory is supplied
+        const activeRoomNumbers = uniqueRooms.map((r) => toSafeString(r.roomNumber)).filter(Boolean);
+        if (activeRoomNumbers.length > 0) {
+          await db.delete(pmsRooms).where(notInArray(pmsRooms.roomNumber, activeRoomNumbers));
+        }
       } catch (err: any) {
         console.warn('Rooms relational sync notice:', err?.message);
       }
@@ -407,6 +413,12 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
                 updatedAt,
               },
             });
+        }
+
+        // Prune deleted reservations from relational table
+        const activeResIds = uniqueRes.map((r) => toSafeString(r.id)).filter(Boolean);
+        if (activeResIds.length > 0) {
+          await db.delete(pmsReservations).where(notInArray(pmsReservations.id, activeResIds));
         }
       } catch (err: any) {
         console.warn('Reservations relational sync notice:', err?.message);
@@ -1180,10 +1192,10 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       version: nextVersion,
       totalEntities: totalEntitiesCount,
       timestamp: new Date().toISOString(),
-      region: 'us-west1',
+      region: 'Supabase Cloud',
     };
   } catch (error: any) {
-    console.error('Failed to sync PMS state to Cloud SQL snapshot:', error);
+    console.error('Failed to sync PMS state to Supabase snapshot:', error);
     const detailMsg = error?.detail || error?.message || 'Database full sync failed';
     throw new Error(`Database full sync failed: ${detailMsg}`, { cause: error });
   }
@@ -1332,6 +1344,24 @@ export async function recordSyncEvent(entityType: string, entityId: string, acti
         status: 'SUCCESS',
       })
       .returning();
+
+    // If this is a direct DELETE action, also remove the matching entity from its relational table
+    if (action.toUpperCase() === 'DELETE') {
+      try {
+        const lowerType = entityType.toLowerCase();
+        if (lowerType.includes('room')) {
+          await db.delete(pmsRooms).where(or(eq(pmsRooms.id, entityId), eq(pmsRooms.roomNumber, entityId)));
+        } else if (lowerType.includes('reservation')) {
+          await db.delete(pmsReservations).where(or(eq(pmsReservations.id, entityId), eq(pmsReservations.reservationNumber, entityId)));
+        } else if (lowerType.includes('stay')) {
+          await db.delete(pmsStays).where(eq(pmsStays.id, entityId));
+        } else if (lowerType.includes('folio')) {
+          await db.delete(pmsFolios).where(eq(pmsFolios.id, entityId));
+        }
+      } catch (delErr) {
+        console.warn('Relational DELETE cleanup notice:', delErr);
+      }
+    }
 
     return record;
   } catch (error) {

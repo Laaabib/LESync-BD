@@ -91,7 +91,10 @@ export const CloudSqlConsole: React.FC = () => {
   const fetchTables = async () => {
     setLoadingTables(true);
     try {
-      const res = await fetch('/api/cloudsql/tables');
+      let res = await fetch('/api/supabase/tables');
+      if (!res.ok) {
+        res = await fetch('/api/cloudsql/tables');
+      }
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         console.warn('Backend tables endpoint returned non-JSON response');
@@ -121,16 +124,23 @@ export const CloudSqlConsole: React.FC = () => {
     setResult(null);
 
     try {
-      const res = await fetch('/api/cloudsql/query', {
+      let res = await fetch('/api/supabase/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sqlQuery: sqlToRun })
       });
+      if (!res.ok && res.status === 404) {
+        res = await fetch('/api/cloudsql/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sqlQuery: sqlToRun })
+        });
+      }
       const contentType = res.headers.get('content-type') || '';
       if (!contentType.includes('application/json')) {
         const text = await res.text().catch(() => '');
         setResult({
-          error: `Server returned non-JSON status (${res.status}). Ensure PostgreSQL (POSTGRES_URL) is configured in Vercel environment variables.`
+          error: `Server returned non-JSON status (${res.status}). Ensure Supabase (SUPABASE_DB_URL or DATABASE_URL) is configured.`
         });
         return;
       }
@@ -155,6 +165,27 @@ export const CloudSqlConsole: React.FC = () => {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const handleCopySetupSql = async () => {
+    try {
+      const res = await fetch('/api/supabase/export-sql');
+      const text = await res.text();
+      await navigator.clipboard.writeText(text);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 2500);
+    } catch (err) {
+      console.warn('Failed to copy setup SQL:', err);
+    }
+  };
+
+  const handleDownloadSetupSql = () => {
+    const link = document.createElement('a');
+    link.href = '/api/supabase/export-sql?download=true';
+    link.download = 'supabase_schema_and_seed.sql';
+    link.click();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -213,19 +244,37 @@ export const CloudSqlConsole: React.FC = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white tracking-tight">Cloud SQL Interactive Console</h2>
+                <h2 className="text-lg font-bold text-white tracking-tight">Supabase SQL Interactive Console</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  PostgreSQL 18.6 Live
+                  Supabase (PostgreSQL) Live
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Execute SQL statements directly against your Cloud SQL database, inspect table structures, and explore live operational records.
+                Execute SQL statements directly against your Supabase database, inspect table structures, and explore live operational records.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleCopySetupSql}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Copy complete Supabase SQL setup script (tables + demo seed data)"
+          >
+            {copiedSql ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+            <span>{copiedSql ? 'Copied SQL!' : 'Copy Setup SQL'}</span>
+          </button>
+
+          <button
+            onClick={handleDownloadSetupSql}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            title="Download supabase_schema_and_seed.sql file"
+          >
+            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <span>Download .sql</span>
+          </button>
+
           <button
             onClick={() => handleRunQuery()}
             disabled={isRunning}
@@ -380,7 +429,7 @@ export const CloudSqlConsole: React.FC = () => {
               {isRunning && (
                 <div className="flex items-center justify-center h-full text-slate-400 gap-2">
                   <RefreshCw className="w-5 h-5 animate-spin text-amber-400" />
-                  <span className="text-xs">Executing query on Cloud SQL...</span>
+                  <span className="text-xs">Executing query on Supabase...</span>
                 </div>
               )}
 

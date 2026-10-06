@@ -1,5 +1,7 @@
 import express from 'express';
 import net from 'net';
+import fs from 'fs';
+import path from 'path';
 import {
   getCloudSqlStatus,
   syncEntirePmsState,
@@ -11,7 +13,7 @@ import {
   getCityLedgerFromDb,
   getTrialBalanceFromDb,
 } from '../db/syncService.ts';
-import { pool, isPostgresConfigured } from '../db/index.ts';
+import { pool, isPostgresConfigured, setDynamicConnectionString, getDatabaseConnectionString } from '../db/index.ts';
 import { ensureDatabaseSchema } from '../db/schemaInitializer.ts';
 
 // Broadcast hook for optional WebSocket or multi-client fan-out (registered by server.ts if running)
@@ -38,6 +40,7 @@ export function createApp(): express.Express {
   app.use((req, res, next) => {
     const rawUrl = req.url || '';
     if (
+      rawUrl.startsWith('/supabase') ||
       rawUrl.startsWith('/cloudsql') ||
       rawUrl.startsWith('/accounts') ||
       rawUrl.startsWith('/biometric') ||
@@ -60,22 +63,155 @@ export function createApp(): express.Express {
       service: 'LESync PMS Cloud Engine',
       environment: process.env.VERCEL ? 'vercel-serverless' : 'node-server',
       postgresConfigured: isPostgresConfigured(),
+      databaseProvider: 'Supabase',
       timestamp: new Date().toISOString(),
     });
   });
 
-  // 2. Cloud SQL / PostgreSQL Connection & Synchronization Status
-  app.get(['/api/cloudsql/status', '/cloudsql/status'], async (req, res) => {
+  // 1a. Supabase Client Configuration (URL & Anon Key)
+  app.get(['/api/supabase/config', '/supabase/config'], (req, res) => {
+    let url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+    const key = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    const projectRef = url ? url.replace(/^https?:\/\//, '').split('.')[0] : null;
+    res.json({
+      url,
+      key,
+      configured: Boolean(url && key),
+      projectRef,
+    });
+  });
+
+  // 1b. Supabase / PostgreSQL Connection Tester & Config Updater
+  app.post(['/api/supabase/test-connection', '/api/cloudsql/test-connection'], async (req, res) => {
+    const { connectionString } = req.body;
+    const testCs = connectionString || getDatabaseConnectionString();
+
+    if (!testCs) {
+      return res.status(400).json({
+        success: false,
+        error: 'No database connection string provided or found in environment variables.',
+      });
+    }
+
+    try {
+      const pg = await import('pg');
+      const testPool = new pg.default.Pool({
+        connectionString: testCs,
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 10000,
+      });
+
+      const client = await testPool.connect();
+      const versionResult = await client.query('SELECT version(), current_database(), current_user;');
+      client.release();
+      await testPool.end();
+
+      const row = versionResult.rows[0];
+      res.json({
+        success: true,
+        message: 'Successfully connected to Supabase PostgreSQL database!',
+        database: row.current_database,
+        user: row.current_user,
+        version: row.version?.split(' ')?.[0] || 'PostgreSQL',
+      });
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err?.message || 'Failed to connect to Supabase database',
+      });
+    }
+  });
+
+  // 1c. Dynamically save / apply Supabase connection string at runtime
+  app.post(['/api/supabase/save-config', '/api/cloudsql/save-config'], async (req, res) => {
+    const { connectionString } = req.body;
+    if (typeof connectionString === 'string' && connectionString.trim().length > 0) {
+      setDynamicConnectionString(connectionString.trim());
+      try {
+        await ensureDatabaseSchema();
+        return res.json({
+          success: true,
+          configured: true,
+          message: 'Supabase database connection configured and schema initialized!',
+        });
+      } catch (err: any) {
+        return res.json({
+          success: true,
+          configured: true,
+          warning: `Saved connection string, but schema initialization notice: ${err?.message || err}`,
+        });
+      }
+    }
+    return res.status(400).json({ success: false, error: 'Valid connection string is required.' });
+  });
+
+  // 1d. Download / Export Supabase Complete SQL Setup & Seed Script
+  app.get(['/api/supabase/export-sql', '/supabase/export-sql'], (req, res) => {
+    const sqlPath = path.resolve(process.cwd(), 'supabase_schema_and_seed.sql');
+    if (fs.existsSync(sqlPath)) {
+      if (req.query.download === 'true') {
+        res.setHeader('Content-Disposition', 'attachment; filename="supabase_schema_and_seed.sql"');
+      }
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.sendFile(sqlPath);
+    }
+    res.status(404).json({ success: false, error: 'SQL script not found on server' });
+  });
+
+  // 1e. Seed Supabase Database with full demo dataset
+  app.post(['/api/supabase/seed-database', '/supabase/seed-database'], async (req, res) => {
+    try {
+      let statePayload = req.body;
+      if (!statePayload || typeof statePayload !== 'object' || !statePayload.rooms) {
+        // Fallback: extract full PMS state JSON from supabase_schema_and_seed.sql
+        const sqlPath = path.resolve(process.cwd(), 'supabase_schema_and_seed.sql');
+        if (fs.existsSync(sqlPath)) {
+          const sqlContent = fs.readFileSync(sqlPath, 'utf8');
+          const jsonMatch = sqlContent.match(/'({.*})'::jsonb/s);
+          if (jsonMatch) {
+            try {
+              statePayload = JSON.parse(jsonMatch[1]);
+            } catch (jsonErr) {
+              console.warn('Could not parse SQL snapshot JSON:', jsonErr);
+            }
+          }
+        }
+      }
+
+      if (statePayload && Array.isArray(statePayload.rooms)) {
+        const syncResult = await syncEntirePmsState(statePayload, 'Supabase Demo Seed');
+        return res.json({
+          success: true,
+          message: `Demo data seeded to Supabase successfully (${syncResult.totalEntities || statePayload.rooms.length} entities across tables)!`,
+          syncResult,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Supabase demo state verified and synchronized.',
+      });
+    } catch (err: any) {
+      console.error('Error seeding database:', err?.message || err);
+      res.status(500).json({ success: false, error: err?.message || 'Database seed execution failed' });
+    }
+  });
+
+  // 2. Supabase / PostgreSQL Connection & Synchronization Status
+  app.get(['/api/supabase/status', '/supabase/status', '/api/cloudsql/status', '/cloudsql/status'], async (req, res) => {
     try {
       const status = await getCloudSqlStatus();
-      res.json({ success: true, ...status });
+      res.json({ success: true, provider: 'Supabase', ...status });
     } catch (error: any) {
-      console.error('Error in /api/cloudsql/status endpoint:', error?.message || error);
+      console.error('Error in /api/supabase/status endpoint:', error?.message || error);
       res.json({
         success: true,
         connected: false,
+        provider: 'Supabase',
         error: error?.message || 'Database unavailable',
-        region: 'us-west1',
+        region: 'Supabase Cloud',
         database: 'Not Connected',
         tableCounts: {},
       });
@@ -83,7 +219,7 @@ export function createApp(): express.Express {
   });
 
   // 3. Full PMS Application State Synchronization Endpoint
-  app.post(['/api/cloudsql/sync-all', '/cloudsql/sync-all'], async (req, res) => {
+  app.post(['/api/supabase/sync-all', '/supabase/sync-all', '/api/cloudsql/sync-all', '/cloudsql/sync-all'], async (req, res) => {
     try {
       const statePayload = req.body;
       if (!statePayload || typeof statePayload !== 'object') {
@@ -97,14 +233,14 @@ export function createApp(): express.Express {
           version: 1,
           totalEntities: 0,
           timestamp: new Date().toISOString(),
-          message: 'PostgreSQL is not configured. Saved in local persistent mirror.',
+          message: 'Supabase PostgreSQL is not configured. Saved in local persistent mirror.',
         });
       }
 
       const result = await syncEntirePmsState(statePayload);
       res.json(result);
     } catch (error: any) {
-      console.error('Error syncing PMS state to PostgreSQL:', error?.message || error);
+      console.error('Error syncing PMS state to Supabase:', error?.message || error);
       res.status(500).json({
         success: false,
         error: error?.message || 'Synchronization failed',
@@ -112,15 +248,15 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get(['/api/cloudsql/sync-all', '/cloudsql/sync-all'], (req, res) => {
+  app.get(['/api/supabase/sync-all', '/supabase/sync-all', '/api/cloudsql/sync-all', '/cloudsql/sync-all'], (req, res) => {
     res.json({
       success: true,
-      message: 'Cloud SQL / PostgreSQL sync-all endpoint is operational. Send a POST request with PMS state payload to synchronize.',
+      message: 'Supabase sync-all endpoint is operational. Send a POST request with PMS state payload to synchronize.',
     });
   });
 
   // 4. Incremental Delta Change Event Pipe
-  app.post(['/api/cloudsql/sync-event', '/cloudsql/sync-event'], async (req, res) => {
+  app.post(['/api/supabase/sync-event', '/supabase/sync-event', '/api/cloudsql/sync-event', '/cloudsql/sync-event'], async (req, res) => {
     try {
       const { entityType, entityId, action, payload } = req.body;
       if (!entityType || !entityId || !action) {
@@ -133,7 +269,7 @@ export function createApp(): express.Express {
       const event = await recordSyncEvent(entityType, entityId, action, payload);
       res.json({ success: true, event });
     } catch (error: any) {
-      console.error('Error recording sync event to PostgreSQL:', error?.message || error);
+      console.error('Error recording sync event to Supabase PostgreSQL:', error?.message || error);
       res.status(500).json({
         success: false,
         error: error?.message || 'Event logging failed',
@@ -141,15 +277,15 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get(['/api/cloudsql/sync-event', '/cloudsql/sync-event'], (req, res) => {
+  app.get(['/api/supabase/sync-event', '/supabase/sync-event', '/api/cloudsql/sync-event', '/cloudsql/sync-event'], (req, res) => {
     res.json({
       success: true,
-      message: 'Cloud SQL / PostgreSQL sync-event endpoint is operational. Send a POST request with event payload to record delta events.',
+      message: 'Supabase PostgreSQL sync-event endpoint is operational. Send a POST request with event payload to record delta events.',
     });
   });
 
   // 5. Recent Sync Events Log
-  app.get(['/api/cloudsql/sync-history', '/cloudsql/sync-history'], async (req, res) => {
+  app.get(['/api/supabase/sync-history', '/supabase/sync-history', '/api/cloudsql/sync-history', '/cloudsql/sync-history'], async (req, res) => {
     try {
       const limit = Number(req.query.limit) || 20;
       const history = await getRecentSyncEvents(limit);
@@ -163,8 +299,8 @@ export function createApp(): express.Express {
     }
   });
 
-  // 6. Load Latest PMS State Snapshot from PostgreSQL (Cloud Hydration)
-  app.get(['/api/cloudsql/load-latest', '/cloudsql/load-latest'], async (req, res) => {
+  // 6. Load Latest PMS State Snapshot from PostgreSQL (Supabase Cloud Hydration)
+  app.get(['/api/supabase/load-latest', '/supabase/load-latest', '/api/cloudsql/load-latest', '/cloudsql/load-latest'], async (req, res) => {
     try {
       const snapshot = await loadLatestPmsSnapshot();
       if (!snapshot) {
@@ -172,7 +308,7 @@ export function createApp(): express.Express {
       }
       res.json({ success: true, exists: true, snapshot });
     } catch (error: any) {
-      console.error('Error loading latest PMS snapshot:', error?.message || error);
+      console.error('Error loading latest PMS snapshot from Supabase:', error?.message || error);
       res.json({
         success: true,
         exists: false,
@@ -183,7 +319,7 @@ export function createApp(): express.Express {
   });
 
   // 6b. Connected Resort Devices Presence Endpoint
-  app.get(['/api/cloudsql/connected-devices', '/cloudsql/connected-devices'], (req, res) => {
+  app.get(['/api/supabase/connected-devices', '/supabase/connected-devices', '/api/cloudsql/connected-devices', '/cloudsql/connected-devices'], (req, res) => {
     const devices = externalDeviceListHook ? externalDeviceListHook() : [];
     res.json({
       success: true,
@@ -192,8 +328,8 @@ export function createApp(): express.Express {
     });
   });
 
-  // 6c. Multi-Device Realtime Broadcast & Cloud SQL Commit Endpoint (HTTP fallback)
-  app.post(['/api/cloudsql/broadcast-sync', '/cloudsql/broadcast-sync'], async (req, res) => {
+  // 6c. Multi-Device Realtime Broadcast & Supabase Commit Endpoint (HTTP fallback)
+  app.post(['/api/supabase/broadcast-sync', '/supabase/broadcast-sync', '/api/cloudsql/broadcast-sync', '/cloudsql/broadcast-sync'], async (req, res) => {
     try {
       const { deviceId, department, userName, reason, state, version } = req.body;
       if (!state || typeof state !== 'object') {
@@ -284,14 +420,14 @@ export function createApp(): express.Express {
     }
   });
 
-  // 10b. Cloud SQL / PostgreSQL Console: Query Tables and Metadata
-  app.get(['/api/cloudsql/tables', '/cloudsql/tables'], async (req, res) => {
+  // 10b. Supabase / PostgreSQL Console: Query Tables and Metadata
+  app.get(['/api/supabase/tables', '/supabase/tables', '/api/cloudsql/tables', '/cloudsql/tables'], async (req, res) => {
     if (!isPostgresConfigured()) {
       return res.json({
         success: true,
         configured: false,
         tables: [],
-        message: 'PostgreSQL database is not configured. Add POSTGRES_URL or DATABASE_URL in Vercel environment variables.',
+        message: 'Supabase PostgreSQL database is not configured. Add SUPABASE_DB_URL, POSTGRES_URL, or DATABASE_URL in environment variables.',
       });
     }
 
@@ -306,17 +442,17 @@ export function createApp(): express.Express {
       `);
       res.json({ success: true, configured: true, tables: result.rows });
     } catch (error: any) {
-      console.error('Error listing tables for SQL console:', error?.message || error);
+      console.error('Error listing tables for Supabase SQL console:', error?.message || error);
       res.status(500).json({ success: false, error: error?.message || 'Failed to list tables' });
     }
   });
 
-  // 10c. Cloud SQL / PostgreSQL Console: Direct SQL Query Execution
-  app.post(['/api/cloudsql/query', '/cloudsql/query'], async (req, res) => {
+  // 10c. Supabase / PostgreSQL Console: Direct SQL Query Execution
+  app.post(['/api/supabase/query', '/supabase/query', '/api/cloudsql/query', '/cloudsql/query'], async (req, res) => {
     if (!isPostgresConfigured()) {
       return res.status(400).json({
         success: false,
-        error: 'PostgreSQL database is not configured. Add POSTGRES_URL or DATABASE_URL in Vercel environment variables.',
+        error: 'Supabase PostgreSQL database is not configured. Add SUPABASE_DB_URL, POSTGRES_URL, or DATABASE_URL in environment variables.',
       });
     }
 

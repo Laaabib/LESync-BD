@@ -138,12 +138,12 @@ export default function App() {
     timestamp: string;
   } | null>(null);
 
-  // Subscribe to service state, initialize Cloud SQL & Multi-Device Realtime Mesh, and Auto Night Audit monitor (06:00 AM)
+  // Subscribe to service state, initialize Supabase & Multi-Device Realtime Mesh, and Auto Night Audit monitor (06:00 AM)
   useEffect(() => {
     try {
       cloudSqlSyncService.init();
     } catch (err) {
-      console.warn('Cloud SQL sync init non-critical error:', err);
+      console.warn('Supabase sync init non-critical error:', err);
     }
     try {
       realtimeSyncService.init();
@@ -897,12 +897,12 @@ export default function App() {
               />
             )}
 
-            {/* Dedicated Manual Backup & Cloud SQL Center */}
+            {/* Dedicated Supabase Cloud Database & Replication Center */}
             {(activeRoute === 'admin-backup' ||
               activeRoute === 'backup-management' ||
               activeRoute === 'admin-backup-center' ||
               activeRoute === 'admin-sql-console') && (
-              <BackupManagementView initialTab={activeRoute === 'admin-sql-console' ? 'sql-console' : 'backup'} />
+              <BackupManagementView initialTab={activeRoute === 'admin-sql-console' ? 'sql-console' : 'supabase'} />
             )}
           </div>
         </main>
@@ -1061,13 +1061,15 @@ export default function App() {
       )}
 
       {/* 5. High Fidelity Printable Modal (Invoices, Reg Cards, Banquet Contracts) */}
-      <PrintableModal
-        isOpen={printModal.isOpen}
-        onClose={() => setPrintModal({ isOpen: false, type: 'invoice', data: null })}
-        documentType={printModal.type}
-        type={printModal.type}
-        data={printModal.data}
-      />
+      {printModal.isOpen && (
+        <PrintableModal
+          isOpen={printModal.isOpen}
+          onClose={() => setPrintModal({ isOpen: false, type: 'invoice', data: null })}
+          documentType={printModal.type}
+          type={printModal.type}
+          data={printModal.data}
+        />
+      )}
 
       {/* 6. Quick Menu Bar: Front Desk Reports (In-House, Occupancy, Reservations, Arrivals, Departures) */}
       <QuickMenuBar

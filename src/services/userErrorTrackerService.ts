@@ -598,11 +598,11 @@ class UserErrorTrackerService {
         });
       case 'sync':
         return this.trackError({
-          errorMessage: 'Cloud SQL Re-Sync Stalled: PostgreSQL streaming replication lag exceeded 120s.',
+          errorMessage: 'Supabase Re-Sync Stalled: PostgreSQL streaming replication lag exceeded 120s.',
           errorName: 'ReplicationLagTimeout',
           severity: 'HIGH',
           category: 'Database & Sync',
-          component: 'CloudSqlSyncManager',
+          component: 'SupabaseSyncManager',
           route: 'admin-backup',
           stateSnapshot: { simulated: true, lagSeconds: 142 }
         });

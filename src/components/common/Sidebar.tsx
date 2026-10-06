@@ -357,8 +357,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'admin-numbering', label: 'Numbering Schemes', icon: Tag },
         { id: 'admin-audit-rules', label: 'Night Audit Automation Schedule', icon: Clock },
         { id: 'settings', label: 'System Settings', icon: Settings },
-        { id: 'admin-backup', label: 'Manual Backup & Restore', icon: Database },
-        { id: 'admin-sql-console', label: 'Cloud SQL Console', icon: Terminal },
+        { id: 'admin-backup', label: 'Supabase Cloud Database', icon: Database },
+        { id: 'admin-sql-console', label: 'Supabase SQL Console', icon: Terminal },
         { id: 'admin-audit', label: 'User Activity Logs', icon: History }
       ]
     }

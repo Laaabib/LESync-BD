@@ -286,7 +286,7 @@ export const AdminErrorFinderTab: React.FC<AdminErrorFinderTabProps> = ({
                   className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-800 text-slate-200 font-semibold flex items-center space-x-2 cursor-pointer transition-colors"
                 >
                   <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                  <span>Cloud SQL Re-Sync Stalled</span>
+                  <span>Supabase Re-Sync Stalled</span>
                 </button>
                 <button
                   onClick={() => handleTriggerSimulation('crash')}

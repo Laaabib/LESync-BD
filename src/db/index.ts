@@ -9,8 +9,22 @@ declare global {
   var _postgresPool: pg.Pool | undefined;
 }
 
+let _dynamicConnectionString: string | null = null;
+
+export const setDynamicConnectionString = (cs: string | null): void => {
+  _dynamicConnectionString = cs;
+  if (global._postgresPool) {
+    global._postgresPool.end().catch(() => {});
+    global._postgresPool = undefined;
+  }
+};
+
 export const isPostgresConfigured = (): boolean => {
+  if (_dynamicConnectionString && _dynamicConnectionString.trim().length > 0) return true;
   const cs =
+    process.env.SUPABASE_DB_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
+    process.env.SUPABASE_POSTGRES_URL ||
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
@@ -18,14 +32,20 @@ export const isPostgresConfigured = (): boolean => {
     process.env.PG_URL;
   if (cs && cs.trim().length > 0) return true;
 
-  const host = process.env.POSTGRES_HOST || process.env.PGHOST || process.env.SQL_HOST;
-  const user = process.env.POSTGRES_USER || process.env.PGUSER || process.env.SQL_USER;
-  const db = process.env.POSTGRES_DATABASE || process.env.PGDATABASE || process.env.SQL_DB_NAME;
+  const host = process.env.SUPABASE_HOST || process.env.POSTGRES_HOST || process.env.PGHOST || process.env.SQL_HOST;
+  const user = process.env.SUPABASE_USER || process.env.POSTGRES_USER || process.env.PGUSER || process.env.SQL_USER;
+  const db = process.env.SUPABASE_DATABASE || process.env.POSTGRES_DATABASE || process.env.PGDATABASE || process.env.SQL_DB_NAME;
   return Boolean(host && user && db);
 };
 
 export const getDatabaseConnectionString = (): string | undefined => {
+  if (_dynamicConnectionString && _dynamicConnectionString.trim().length > 0) {
+    return _dynamicConnectionString;
+  }
   return (
+    process.env.SUPABASE_DB_URL ||
+    process.env.SUPABASE_DATABASE_URL ||
+    process.env.SUPABASE_POSTGRES_URL ||
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
