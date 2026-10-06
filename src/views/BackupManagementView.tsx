@@ -484,7 +484,7 @@ VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
           <BedDouble className="w-4 h-4 text-indigo-400 mx-auto mb-1" />
-          <div className="text-lg font-black font-mono text-white">{(cloudStatus.tableCounts?.rooms || db.rooms || []).length || 211}</div>
+          <div className="text-lg font-black font-mono text-white">{cloudStatus.tableCounts?.rooms || (db.rooms || []).length || 211}</div>
           <div className="text-[10px] text-slate-400 font-medium">Rooms</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center">
