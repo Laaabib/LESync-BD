@@ -6,7 +6,7 @@ import {
   Download, FileSpreadsheet, UtensilsCrossed, Wine, Sparkles,
   Palmtree, Gift, BedDouble, Check, X, Layers, Tag, DollarSign,
   Smartphone, Landmark, Percent, Clock, Users, ChevronRight,
-  HelpCircle, Shield, Key, AlertCircle, ShoppingBag, RefreshCw
+  HelpCircle, Shield, Key, AlertCircle, ShoppingBag, RefreshCw, Database
 } from 'lucide-react';
 import {
   adminMasterService,
@@ -19,6 +19,7 @@ import {
 } from '../services/adminMasterService';
 import { rbacService } from '../services/rbacService';
 import { pmsService } from '../services/pmsService';
+import { supabaseSyncService, SupabaseSyncStatus } from '../services/supabaseSyncService';
 import { DepartmentDef, OutletDef } from '../types/reportingAndRbac';
 import * as XLSX from 'xlsx';
 
@@ -86,6 +87,33 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Cloud SQL & Supabase Sync State
+  const [syncStatus, setSyncStatus] = useState<SupabaseSyncStatus>(() => supabaseSyncService.getStatus());
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+
+  useEffect(() => {
+    const unsubSync = supabaseSyncService.subscribe((status) => {
+      setSyncStatus({ ...status });
+    });
+    return () => unsubSync();
+  }, []);
+
+  const handleManualCloudSync = async () => {
+    setIsManualSyncing(true);
+    try {
+      const res = await supabaseSyncService.syncEntirePmsState();
+      if (res.success) {
+        showToast('Admin catalog & PMS state synced to SQL & Supabase cloud!');
+      } else {
+        showToast(res.message || 'Sync completed with notices.');
+      }
+    } catch (err: any) {
+      showToast(`Cloud Sync notice: ${err?.message || 'Sync failed'}`);
+    } finally {
+      setIsManualSyncing(false);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -802,6 +830,17 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
               <span className="text-[10px] text-slate-400 block font-bold uppercase">Billing Tenders</span>
               <span className="text-lg font-black font-mono text-cyan-400">{billingOptions.filter(b => b.active).length} Active</span>
             </div>
+
+            <button
+              type="button"
+              onClick={handleManualCloudSync}
+              disabled={isManualSyncing || syncStatus.isSyncing}
+              className="bg-indigo-600/90 hover:bg-indigo-500 text-white font-bold text-xs px-3.5 py-2.5 rounded-2xl flex items-center space-x-2 border border-indigo-400/40 transition-all shadow-lg shadow-indigo-950/40 cursor-pointer disabled:opacity-50 self-center"
+              title="Synchronize all admin menus, departments, items, tenders, and users directly to Cloud SQL & Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isManualSyncing || syncStatus.isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isManualSyncing || syncStatus.isSyncing ? 'Syncing...' : 'Sync with SQL & Supabase'}</span>
+            </button>
           </div>
         </div>
 

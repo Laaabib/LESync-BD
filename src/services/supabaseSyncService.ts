@@ -1,4 +1,7 @@
 import { pmsService } from './pmsService';
+import { rbacService } from './rbacService';
+import { adminMasterService } from './adminMasterService';
+import { authService } from './authService';
 import { PmsDatabaseState } from './mockPmsDatabase';
 import {
   getSupabaseConfig,
@@ -212,6 +215,14 @@ class SupabaseSyncService {
       this.pendingChanges = true;
       this.scheduleDebouncedSync(3000);
     });
+    rbacService.subscribe(() => {
+      this.pendingChanges = true;
+      this.scheduleDebouncedSync(2000);
+    });
+    adminMasterService.subscribe(() => {
+      this.pendingChanges = true;
+      this.scheduleDebouncedSync(2000);
+    });
   }
 
   private scheduleDebouncedSync(delayMs = 3000): void {
@@ -346,7 +357,55 @@ class SupabaseSyncService {
     this.notifyListeners();
 
     try {
-      const statePayload = pmsService.getState();
+      const pmsState = pmsService.getState();
+      const rbacUsers = rbacService.getUsers();
+      const adminRoles = rbacService.getRoles();
+      const adminDepartments = rbacService.getDepartments();
+      const adminOutlets = rbacService.getOutlets();
+      const adminApprovalRules = rbacService.getApprovalRules();
+      const adminReportConfig = rbacService.getReportRoleConfig();
+      const adminNavModules = adminMasterService.getNavModules();
+      const adminBillingOptions = adminMasterService.getBillingOptions();
+      const adminDeptItems = adminMasterService.getDepartmentItems();
+      const adminCredentials = authService.getCredentials();
+
+      const statePayload = {
+        ...pmsState,
+        users: rbacUsers.map(u => ({
+          id: u.id,
+          name: u.name,
+          username: adminCredentials[u.id]?.username || u.username || (u.email ? u.email.split('@')[0] : u.id),
+          email: u.email,
+          role: u.roleName,
+          roleId: u.roleId,
+          roleName: u.roleName,
+          department: u.department,
+          dataScope: u.dataScope,
+          outletId: u.outletId,
+          customPermissions: u.customPermissions,
+          deniedPermissions: u.deniedPermissions,
+          avatar: u.avatar
+        })),
+        adminData: {
+          roles: adminRoles,
+          departments: adminDepartments,
+          outlets: adminOutlets,
+          approvalRules: adminApprovalRules,
+          reportRoleConfig: adminReportConfig,
+          navigationModules: adminNavModules,
+          billingOptions: adminBillingOptions,
+          departmentItems: adminDeptItems,
+          credentialsSummary: Object.entries(adminCredentials).map(([uid, c]) => ({
+            userId: uid,
+            username: c.username,
+            employeeId: c.employeeId,
+            email: c.email,
+            status: c.status,
+            property: c.property,
+            outlet: c.outlet
+          }))
+        }
+      };
 
       let result: any = null;
       let serverSyncWorked = false;
@@ -442,6 +501,53 @@ class SupabaseSyncService {
     }
   }
 
+  private applyRestoredState(state: any): void {
+    if (!state) return;
+    pmsService.restoreFullBackupPayload({ pmsDatabase: state });
+
+    // Synchronize users & usernames from restored state
+    if (Array.isArray(state.users) && state.users.length > 0) {
+      state.users.forEach((u: any) => {
+        if (u && u.id) {
+          const userUsername = u.username || (u.email ? u.email.split('@')[0] : u.id);
+          rbacService.updateUser(u.id, {
+            name: u.name,
+            username: userUsername,
+            roleName: u.role || u.roleName,
+            department: u.department,
+            email: u.email
+          });
+          authService.adminUpdateUser(u.id, {
+            name: u.name,
+            username: userUsername,
+            email: u.email,
+            employeeId: u.employeeId,
+            mobile: u.phone || u.mobile,
+            status: u.status || (u.active !== false ? 'Active' : 'Inactive')
+          }, { skipCloudSync: true });
+        }
+      });
+    }
+
+    // Synchronize admin master data & credentials summary
+    if (state.adminData) {
+      const adm = state.adminData;
+      if (Array.isArray(adm.credentialsSummary)) {
+        adm.credentialsSummary.forEach((cs: any) => {
+          if (cs && cs.userId) {
+            authService.adminUpdateUser(cs.userId, {
+              username: cs.username,
+              employeeId: cs.employeeId,
+              email: cs.email,
+              status: cs.status,
+              mobile: cs.mobile
+            }, { skipCloudSync: true });
+          }
+        });
+      }
+    }
+  }
+
   public async loadLatestFromSupabase(): Promise<{ success: boolean; loaded: boolean; message?: string }> {
     try {
       let data: any = null;
@@ -453,22 +559,77 @@ class SupabaseSyncService {
         } catch {}
       }
 
-      if (data?.success && data?.exists && data?.snapshot?.pmsState) {
-        const state = data.snapshot.pmsState as PmsDatabaseState;
-        pmsService.restoreFullBackupPayload({ pmsDatabase: state });
+      if (data?.success && data?.exists && (data?.snapshot?.pmsState || data?.snapshot?.state)) {
+        const state = (data.snapshot.pmsState || data.snapshot.state) as PmsDatabaseState;
+        this.applyRestoredState(state);
         return { success: true, loaded: true, message: `Loaded snapshot v${data.snapshot.version || 1} from Supabase` };
       }
 
       // Fallback: direct client load
       const directData = await loadSnapshotDirectlyFromSupabase();
-      if (directData?.success && directData?.snapshot?.pmsState) {
-        pmsService.restoreFullBackupPayload({ pmsDatabase: directData.snapshot.pmsState as PmsDatabaseState });
+      if (directData?.success && (directData?.snapshot?.pmsState || directData?.snapshot?.state)) {
+        const directState = (directData.snapshot.pmsState || directData.snapshot.state) as PmsDatabaseState;
+        this.applyRestoredState(directState);
         return { success: true, loaded: true, message: `Loaded snapshot directly from Supabase` };
       }
 
       return { success: true, loaded: false, message: 'No snapshot available in Supabase yet.' };
     } catch (err: any) {
       throw new Error(`Failed to load data from Supabase: ${err?.message || err}`);
+    }
+  }
+
+  public async hydrateFromSupabase(): Promise<boolean> {
+    const config = getSupabaseConfig();
+    if (!config.isConfigured) return false;
+    try {
+      const client = getSupabaseClient();
+      if (!client) return false;
+
+      // 1. Fetch latest PMS snapshot state first (contains full users with usernames, adminData, roles, navigation, etc.)
+      const { data: snapData, error: sErr } = await client
+        .from('pms_snapshots')
+        .select('state_payload, version, last_synced_at')
+        .eq('snapshot_key', 'current_pms_state')
+        .maybeSingle();
+
+      if (!sErr && snapData?.state_payload) {
+        this.applyRestoredState(snapData.state_payload);
+        if (snapData.last_synced_at) {
+          this.currentStatus.lastSyncedAt = snapData.last_synced_at;
+          this.currentStatus.snapshotVersion = snapData.version || 1;
+        }
+      }
+
+      // 2. Fetch individual user accounts from users table in Supabase
+      const { data: usersData, error: uErr } = await client.from('users').select('*');
+      if (!uErr && Array.isArray(usersData) && usersData.length > 0) {
+        usersData.forEach((uRow: any) => {
+          if (uRow && uRow.uid) {
+            rbacService.updateUser(uRow.uid, {
+              name: uRow.name,
+              roleName: uRow.role,
+              email: uRow.email,
+              ...(uRow.username ? { username: uRow.username } : {})
+            });
+            authService.adminUpdateUser(uRow.uid, {
+              name: uRow.name,
+              roleName: uRow.role,
+              email: uRow.email,
+              ...(uRow.username ? { username: uRow.username } : {})
+            }, { skipCloudSync: true });
+          }
+        });
+      }
+
+      this.currentStatus.connected = true;
+      this.currentStatus.configured = true;
+      this.currentStatus.lastSyncStatus = 'success';
+      this.notifyListeners();
+      return true;
+    } catch (err: any) {
+      console.warn('Notice hydrating state from Supabase:', err?.message || err);
+      return false;
     }
   }
 
@@ -499,6 +660,7 @@ class SupabaseSyncService {
 
   public init(): void {
     this.checkStatus().catch(() => {});
+    this.hydrateFromSupabase().catch(() => {});
   }
 
   public async syncNow(reason?: string): Promise<boolean> {

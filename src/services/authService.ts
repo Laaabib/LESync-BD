@@ -1,5 +1,7 @@
 import { rbacService, UserContext, INITIAL_STAFF_USERS } from './rbacService';
 import { pmsService } from './pmsService';
+import { saveDatabase } from './mockPmsDatabase';
+import { supabaseSyncService } from './supabaseSyncService';
 import { MainModuleName } from '../types/reportingAndRbac';
 
 export interface AuthSession {
@@ -138,8 +140,8 @@ class AuthService {
           const parsed = JSON.parse(saved);
           const cleaned: Record<string, StoredCredential> = { ...DEFAULT_CREDENTIALS };
           for (const [key, val] of Object.entries(parsed)) {
-            if (key === 'usr-admin-1' || (!key.startsWith('usr-gm-') && !key.startsWith('usr-fo-') && !key.startsWith('usr-fin-') && !key.startsWith('usr-rest-') && !key.startsWith('usr-store-') && !key.startsWith('usr-hk-') && !key.startsWith('usr-chef-') && !key.startsWith('usr-bar-') && !key.startsWith('usr-proc-') && !key.startsWith('usr-audit-') && !key.startsWith('u-'))) {
-              cleaned[key] = val as StoredCredential;
+            if (val && typeof val === 'object') {
+              cleaned[key] = { ...(cleaned[key] || {}), ...(val as StoredCredential) };
             }
           }
           this.credentials = cleaned;
@@ -194,6 +196,16 @@ class AuthService {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.user && new Date(parsed.expiresAt).getTime() > Date.now()) {
+          // Re-hydrate session with latest live user from RBAC to guarantee name & username updates persist across reloads
+          const allRbacUsers = rbacService.getUsers();
+          const freshUser = allRbacUsers.find(u => u.id === parsed.user.id || (u.email && u.email.toLowerCase() === (parsed.user.email || '').toLowerCase()));
+          if (freshUser) {
+            parsed.user = { ...parsed.user, ...freshUser };
+          }
+          const cred = this.credentials[parsed.user.id];
+          if (cred?.username) {
+            parsed.user.username = cred.username;
+          }
           this.currentSession = parsed;
           rbacService.setActiveUser(parsed.user.id);
           pmsService.setCurrentUser(parsed.user.id);
@@ -229,11 +241,39 @@ class AuthService {
   }
 
   public getCurrentUser(): UserContext | null {
-    return this.currentSession ? this.currentSession.user : null;
+    if (!this.currentSession) return null;
+    const allRbacUsers = rbacService.getUsers();
+    const fresh = allRbacUsers.find(u => u.id === this.currentSession?.user.id);
+    if (fresh) {
+      this.currentSession.user = { ...this.currentSession.user, ...fresh };
+    }
+    const cred = this.credentials[this.currentSession.user.id];
+    if (cred?.username) {
+      this.currentSession.user.username = cred.username;
+    }
+    return this.currentSession.user;
   }
 
   public getCredentials(): Record<string, StoredCredential> {
-    return this.credentials;
+    const rUsers = rbacService.getUsers();
+    rUsers.forEach(u => {
+      if (!this.credentials[u.id]) {
+        this.credentials[u.id] = {
+          email: u.email || `${u.id}@lesyncpms.com`,
+          username: u.username || (u.email ? u.email.split('@')[0] : u.id),
+          passwordHash: 'admin123',
+          failedAttempts: 0,
+          status: 'Active',
+          employeeId: 'EMP-001',
+          mobile: '+880 1711-000000',
+          property: 'Enterprise Hotel & Resort',
+          outlet: u.outletId
+        };
+      } else if (u.username && !this.credentials[u.id].username) {
+        this.credentials[u.id].username = u.username;
+      }
+    });
+    return { ...this.credentials };
   }
 
   /**
@@ -659,7 +699,11 @@ class AuthService {
     }
   }
 
-  public adminUpdateUser(userId: string, updates: Partial<UserContext & StoredCredential>) {
+  public adminUpdateUser(
+    userId: string,
+    updates: Partial<UserContext & StoredCredential>,
+    options?: { skipCloudSync?: boolean }
+  ) {
     const rName = (updates.roleName || '').toLowerCase().trim();
     const isSuper = userId === 'usr-admin-1' ||
                     updates.roleId === 'role-super-admin' || 
@@ -677,42 +721,101 @@ class AuthService {
     // 1. Update RBAC users and active user
     rbacService.updateUser(userId, updates);
 
-    // 2. Update credentials map
+    // 2. Update credentials map (including username, employeeId, email, mobile, status)
     if (this.credentials[userId]) {
       this.credentials[userId] = { ...this.credentials[userId], ...updates };
-      localStorage.setItem(STORAGE_CREDS_KEY, JSON.stringify(this.credentials));
+    } else {
+      this.credentials[userId] = {
+        email: updates.email || `${userId}@lesyncpms.com`,
+        username: updates.username || (updates.email ? updates.email.split('@')[0] : userId),
+        passwordHash: updates.passwordHash || 'admin123',
+        failedAttempts: 0,
+        status: (updates.status as any) || 'Active',
+        employeeId: updates.employeeId || 'EMP-001',
+        mobile: updates.mobile || '+880 1711-000000',
+        property: updates.property || 'Enterprise Hotel & Resort',
+        outlet: updates.outletId
+      };
     }
+    localStorage.setItem(STORAGE_CREDS_KEY, JSON.stringify(this.credentials));
 
     // 3. Update PMS Database state users and currentUser
     const pmsDb = pmsService.getState();
-    if (Array.isArray(pmsDb.users)) {
-      const pmsUserIdx = pmsDb.users.findIndex(u => u.id === userId);
-      if (pmsUserIdx !== -1) {
-        if (updates.name) pmsDb.users[pmsUserIdx].name = updates.name;
-        if (updates.roleName) pmsDb.users[pmsUserIdx].role = updates.roleName as any;
-        if (updates.department) pmsDb.users[pmsUserIdx].department = updates.department as any;
-        if (updates.email) pmsDb.users[pmsUserIdx].email = updates.email;
-        if (updates.mobile) pmsDb.users[pmsUserIdx].phone = updates.mobile;
-        if (updates.status) pmsDb.users[pmsUserIdx].active = updates.status === 'Active';
-      }
+    if (!Array.isArray(pmsDb.users)) {
+      pmsDb.users = [];
     }
+    const pmsUserIdx = pmsDb.users.findIndex(u => u.id === userId);
+    if (pmsUserIdx !== -1) {
+      if (updates.name) pmsDb.users[pmsUserIdx].name = updates.name;
+      if (updates.username) pmsDb.users[pmsUserIdx].username = updates.username;
+      if (updates.roleName) pmsDb.users[pmsUserIdx].role = updates.roleName as any;
+      if (updates.department) pmsDb.users[pmsUserIdx].department = updates.department as any;
+      if (updates.email) pmsDb.users[pmsUserIdx].email = updates.email;
+      if (updates.mobile) pmsDb.users[pmsUserIdx].phone = updates.mobile;
+      if (updates.status) pmsDb.users[pmsUserIdx].active = updates.status === 'Active';
+    } else {
+      pmsDb.users.push({
+        id: userId,
+        name: updates.name || userId,
+        username: updates.username || (updates.email ? updates.email.split('@')[0] : userId),
+        role: (updates.roleName as any) || 'Front Desk',
+        department: (updates.department as any) || 'Front Office',
+        email: updates.email || `${userId}@lesyncpms.com`,
+        phone: updates.mobile || '+880 1711-000000',
+        active: updates.status !== 'Inactive',
+        createdAt: new Date().toISOString()
+      });
+    }
+
     if (pmsDb.currentUser && (pmsDb.currentUser.id === userId || pmsDb.currentUser.email === updates.email)) {
       if (updates.name) pmsDb.currentUser.name = updates.name;
+      if (updates.username) pmsDb.currentUser.username = updates.username;
       if (updates.roleName) pmsDb.currentUser.role = updates.roleName as any;
       if (updates.department) pmsDb.currentUser.department = updates.department as any;
       if (updates.email) pmsDb.currentUser.email = updates.email;
       if (updates.mobile) pmsDb.currentUser.phone = updates.mobile;
     }
 
-    // 4. Update current active session user if it matches
+    // 4. Update current active session user if it matches and persist to BOTH sessionStorage & localStorage
     if (this.currentSession?.user && (this.currentSession.user.id === userId || this.currentSession.user.email === updates.email)) {
       this.currentSession.user = { ...this.currentSession.user, ...updates };
+      if (updates.username) this.currentSession.user.username = updates.username;
       sessionStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(this.currentSession));
-      this.notify();
+      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(this.currentSession));
     }
+    this.notify();
 
+    // 5. Persist PMS database state to local storage
+    saveDatabase(pmsDb);
     pmsService.notify();
     pmsService.logAudit('Updated User', 'User', userId, undefined, `Updated staff profile for ${updates.name || userId}`);
+
+    // 6. Trigger automatic background sync to Supabase and PostgreSQL/Cloud SQL
+    if (!options?.skipCloudSync) {
+      try {
+        supabaseSyncService.syncEntirePmsState().catch(err => {
+          console.warn('Notice background Supabase sync after user update:', err?.message || err);
+        });
+      } catch {}
+    }
+  }
+
+  /**
+   * Helper for updating profile of current authenticated user or specific staff member
+   */
+  public updateProfile(userId: string, data: { name?: string; username?: string; email?: string; mobile?: string; avatar?: string }): { success: boolean; message: string } {
+    try {
+      this.adminUpdateUser(userId, {
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.username ? { username: data.username } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.mobile ? { mobile: data.mobile } : {}),
+        ...(data.avatar ? { avatar: data.avatar } : {}),
+      });
+      return { success: true, message: 'Profile updated successfully across system and cloud database.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to update profile.' };
+    }
   }
 
   public adminDeleteUser(userId: string): boolean {

@@ -61,6 +61,7 @@ export interface RoleDefinition {
 export interface UserContext {
   id: string;
   name: string;
+  username?: string;
   email: string;
   roleId: string;
   roleName: string;

@@ -155,7 +155,24 @@ export async function syncSnapshotDirectlyToSupabase(
       (statePayload.rooms?.length || 0) +
       (statePayload.reservations?.length || 0) +
       (statePayload.folios?.length || 0) +
-      (statePayload.glAccounts?.length || 0);
+      (statePayload.glAccounts?.length || 0) +
+      (statePayload.users?.length || 0);
+
+    // Sync individual staff users to the Supabase users table
+    if (Array.isArray(statePayload.users) && statePayload.users.length > 0) {
+      try {
+        const userRows = statePayload.users.map((u: any) => ({
+          uid: u.id,
+          email: u.email || `${u.id}@lesyncpms.com`,
+          name: u.name,
+          role: u.role || u.roleName || 'Staff',
+          created_at: u.createdAt || new Date().toISOString()
+        }));
+        await client.from('users').upsert(userRows, { onConflict: 'uid' });
+      } catch (uErr: any) {
+        console.warn('Notice syncing users table directly to Supabase:', uErr?.message || uErr);
+      }
+    }
 
     const { data, error } = await client
       .from('pms_snapshots')

@@ -60,6 +60,9 @@ export const Header: React.FC<HeaderProps> = ({
     const unsubRbac = rbacService.subscribe(() => {
       setActiveUser({ ...rbacService.getActiveUser() });
     });
+    const unsubAuth = authService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
     const unsubSql = cloudSqlSyncService.subscribe((newStatus) => {
       setSqlStatus(newStatus);
       setSqlHealth(cloudSqlSyncService.getHealth());
@@ -79,6 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
     return () => {
       unsub();
       unsubRbac();
+      unsubAuth();
       unsubSql();
       clearInterval(timer);
     };
@@ -352,11 +356,11 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 border border-white" title="Active"></span>
             </div>
             <div className="text-left hidden sm:block">
-              <span className="font-semibold block text-xs leading-tight text-slate-900 truncate max-w-[130px]">
+              <span className="font-semibold block text-xs leading-tight text-slate-900 truncate max-w-[140px]">
                 {activeUser.name}
               </span>
               <span className="text-[10px] font-medium text-amber-700 block leading-tight mt-0.5 truncate">
-                {activeUser.roleName}
+                @{authService.getCredentials()[activeUser.id]?.username || activeUser.username || activeUser.email.split('@')[0]} • {activeUser.roleName}
               </span>
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 shrink-0 hidden sm:block transition-transform" />

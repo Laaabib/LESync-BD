@@ -1485,6 +1485,7 @@ export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-admin-1',
     name: 'Engr. Subrata Roy',
+    username: 'admin',
     email: 'admin@lesyncpms.com',
     roleId: 'role-super-admin',
     roleName: 'Super Admin',
@@ -1495,6 +1496,7 @@ export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-it-1',
     name: 'Kazi Tanvir',
+    username: 'itadmin',
     email: 'it@lesyncpms.com',
     roleId: 'role-it-mgr',
     roleName: 'IT Manager / Administrator',
@@ -1505,6 +1507,7 @@ export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-res-1',
     name: 'Tahmina Akter',
+    username: 'reservation',
     email: 'reservation@lesyncpms.com',
     roleId: 'role-res-exec',
     roleName: 'Reservation Executive',
@@ -1515,6 +1518,7 @@ export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-fo-1',
     name: 'Farhan Ahmed',
+    username: 'frontdesk',
     email: 'frontdesk@lesyncpms.com',
     roleId: 'role-fo-exec',
     roleName: 'Front Desk Executive',
@@ -1525,6 +1529,7 @@ export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-acc-1',
     name: 'Sabrina Khan',
+    username: 'accounts',
     email: 'accounts@lesyncpms.com',
     roleId: 'role-accounts-exec',
     roleName: 'Accounts Executive',
@@ -1749,26 +1754,33 @@ class RbacManager {
     if (!Array.isArray(loadedUsers)) loadedUsers = [...INITIAL_STAFF_USERS];
     // Always guarantee that core staff users exist
     INITIAL_STAFF_USERS.forEach(su => {
-      if (!loadedUsers.some(u => u.id === su.id)) {
-        loadedUsers.push(su);
+      const existing = loadedUsers.find(u => u.id === su.id);
+      if (!existing) {
+        loadedUsers.push({ ...su });
+      } else {
+        if (!existing.username && su.username) {
+          existing.username = su.username;
+        }
       }
     });
 
     if (loadedUsers.length === 0) loadedUsers = [...INITIAL_STAFF_USERS];
 
-    // Self-heal: ensure any user designated as Super Admin has roleId 'role-super-admin' and Enterprise/All Properties scope
+    // Self-heal: ensure any user designated as Super Admin has roleId 'role-super-admin' and Enterprise/All Properties scope, while preserving custom name & username
     loadedUsers = loadedUsers.map(u => {
       const rName = (u.roleName || '').toLowerCase().trim();
+      const username = u.username || (u.email ? u.email.split('@')[0] : u.id);
       if (u.id === 'usr-admin-1' || rName === 'super admin' || rName === 'super administrator' || rName.includes('super admin') || rName.includes('super administrator') || u.roleId === 'role-super-admin') {
         return {
           ...u,
+          username,
           roleId: 'role-super-admin',
           roleName: 'Super Administrator',
           department: 'Executive Management',
           dataScope: 'All Properties'
         };
       }
-      return u;
+      return { ...u, username };
     });
     this.users = loadedUsers;
 
@@ -1857,7 +1869,7 @@ class RbacManager {
   }
 
   public getUsers(): UserContext[] {
-    return this.users;
+    return [...this.users];
   }
 
   public getActiveUser(): UserContext {
@@ -2169,8 +2181,8 @@ class RbacManager {
       merged.dataScope = 'All Properties';
     }
     this.users[idx] = merged;
-    if (this.activeUser.id === userId) {
-      this.activeUser = this.users[idx];
+    if (this.activeUser.id === userId || (this.activeUser.email && merged.email && this.activeUser.email.toLowerCase() === merged.email.toLowerCase())) {
+      this.activeUser = { ...this.users[idx] };
       this.notifyUserChange(this.activeUser);
     }
     localStorage.setItem('cculb_rbac_users_v1', JSON.stringify(this.users));
@@ -2194,6 +2206,7 @@ class RbacManager {
   public updateRole(updatedRole: RoleDefinition) {
     this.roles = this.roles.map(r => r.id === updatedRole.id ? updatedRole : r);
     localStorage.setItem('cculb_roles_v1', JSON.stringify(this.roles));
+    this.notify();
   }
 
   public addRole(newRole: Omit<RoleDefinition, 'id'>): RoleDefinition {
@@ -2203,6 +2216,7 @@ class RbacManager {
     };
     this.roles.push(role);
     localStorage.setItem('cculb_roles_v1', JSON.stringify(this.roles));
+    this.notify();
     return role;
   }
 
@@ -2211,6 +2225,7 @@ class RbacManager {
     if (!role || role.isSystem) return false;
     this.roles = this.roles.filter(r => r.id !== roleId);
     localStorage.setItem('cculb_roles_v1', JSON.stringify(this.roles));
+    this.notify();
     return true;
   }
 
@@ -2222,6 +2237,7 @@ class RbacManager {
   public updateApprovalRule(updatedRule: ApprovalRule) {
     this.approvalRules = this.approvalRules.map(r => r.id === updatedRule.id ? updatedRule : r);
     localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(this.approvalRules));
+    this.notify();
   }
 
   public addApprovalRule(newRule: Omit<ApprovalRule, 'id'>): ApprovalRule {
@@ -2231,12 +2247,14 @@ class RbacManager {
     };
     this.approvalRules.push(rule);
     localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(this.approvalRules));
+    this.notify();
     return rule;
   }
 
   public deleteApprovalRule(ruleId: string): boolean {
     this.approvalRules = this.approvalRules.filter(r => r.id !== ruleId);
     localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(this.approvalRules));
+    this.notify();
     return true;
   }
 
@@ -2248,12 +2266,14 @@ class RbacManager {
   public updateDepartment(updatedDept: DepartmentDef) {
     this.departments = this.departments.map(d => d.id === updatedDept.id ? updatedDept : d);
     localStorage.setItem('cculb_departments_v1', JSON.stringify(this.departments));
+    this.notify();
   }
 
   public deleteDepartment(id: string): boolean {
     const beforeCount = this.departments.length;
     this.departments = this.departments.filter(d => d.id !== id);
     localStorage.setItem('cculb_departments_v1', JSON.stringify(this.departments));
+    this.notify();
     return this.departments.length < beforeCount;
   }
 
@@ -2264,6 +2284,7 @@ class RbacManager {
     };
     this.departments.push(dept);
     localStorage.setItem('cculb_departments_v1', JSON.stringify(this.departments));
+    this.notify();
     return dept;
   }
 
@@ -2275,12 +2296,14 @@ class RbacManager {
   public updateOutlet(updatedOutlet: OutletDef) {
     this.outlets = this.outlets.map(o => o.id === updatedOutlet.id ? updatedOutlet : o);
     localStorage.setItem('cculb_outlets_v1', JSON.stringify(this.outlets));
+    this.notify();
   }
 
   public deleteOutlet(id: string): boolean {
     const beforeCount = this.outlets.length;
     this.outlets = this.outlets.filter(o => o.id !== id);
     localStorage.setItem('cculb_outlets_v1', JSON.stringify(this.outlets));
+    this.notify();
     return this.outlets.length < beforeCount;
   }
 
@@ -2291,6 +2314,7 @@ class RbacManager {
     };
     this.outlets.push(outlet);
     localStorage.setItem('cculb_outlets_v1', JSON.stringify(this.outlets));
+    this.notify();
     return outlet;
   }
 
@@ -2459,9 +2483,14 @@ class RbacManager {
       dataScope = 'Own Outlet';
     }
 
+    const existingUser = this.users.find(u => u.id === pmsUser.id || u.email.toLowerCase() === pmsUser.email.toLowerCase());
+    const effectiveName = existingUser?.name && existingUser.name.trim().length > 0 ? existingUser.name : pmsUser.name;
+    const effectiveUsername = existingUser?.username || (pmsUser as any)?.username || (pmsUser.email ? pmsUser.email.split('@')[0] : pmsUser.id);
+
     const context: UserContext = {
       id: pmsUser.id,
-      name: pmsUser.name,
+      name: effectiveName,
+      username: effectiveUsername,
       email: pmsUser.email,
       roleId,
       roleName: isSuper ? 'Super Administrator' : pmsUser.role,
@@ -2472,7 +2501,7 @@ class RbacManager {
 
     const existingIndex = this.users.findIndex(u => u.id === pmsUser.id || u.email.toLowerCase() === pmsUser.email.toLowerCase());
     if (existingIndex >= 0) {
-      this.users[existingIndex] = { ...this.users[existingIndex], ...context };
+      this.users[existingIndex] = { ...this.users[existingIndex], ...context, name: effectiveName };
     } else {
       this.users.push(context);
     }

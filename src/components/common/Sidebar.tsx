@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
+import { authService } from '../../services/authService';
 import { adminMasterService } from '../../services/adminMasterService';
 import { MainModuleName } from '../../types/reportingAndRbac';
 import { UserAccountDropdown } from './UserAccountDropdown';
@@ -73,6 +74,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const unsubRbac = rbacService.subscribe(() => {
       setActiveUser({ ...rbacService.getActiveUser() });
     });
+    const unsubAuth = authService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
     const unsubPms = pmsService.subscribe((db) => {
       setActiveUser({ ...rbacService.getActiveUser() });
       if (db.settings) {
@@ -84,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
     return () => {
       unsubRbac();
+      unsubAuth();
       unsubPms();
       unsubAdmin();
     };
@@ -846,7 +851,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     )}
                   </div>
                   <p className="text-[10px] text-amber-400 font-semibold truncate">
-                    {activeUser.roleName}
+                    @{authService.getCredentials()[activeUser.id]?.username || activeUser.username || activeUser.email.split('@')[0]} • {activeUser.roleName}
                   </p>
                   <span className="text-[9px] text-slate-400 truncate block">
                     {activeUser.department}

@@ -114,6 +114,7 @@ if (Array.isArray(state.folios)) {
 function notify() {
   state = {
     ...state,
+    users: [...(state.users || [])],
     rooms: [...state.rooms],
     stays: [...state.stays],
     reservations: [...state.reservations],
@@ -171,11 +172,13 @@ rbacService.onUserChange((user) => {
       );
       if (pmsUser) {
         pmsUser.name = user.name;
+        if (user.username) pmsUser.username = user.username;
         pmsUser.role = user.roleName as any;
         pmsUser.department = user.department as any;
         state.currentUser = pmsUser;
       } else if (state.currentUser) {
         state.currentUser.name = user.name;
+        if (user.username) state.currentUser.username = user.username;
         state.currentUser.role = user.roleName as any;
         state.currentUser.department = user.department as any;
       }
@@ -535,15 +538,21 @@ export const pmsService = {
     if (!Array.isArray(state.users)) {
       state.users = [];
     }
-    let user = state.users.find(u => u.id === userId);
-    if (!user) {
-      // Find from RBAC users
-      const rbacUser = rbacService.getUsers().find(u => u.id === userId);
-      if (rbacUser) {
+    const rbacUser = rbacService.getUsers().find(u => u.id === userId || (u.email && u.email.toLowerCase() === (userId || '').toLowerCase()));
+    let user = state.users.find(u => u.id === userId || (u.email && u.email.toLowerCase() === (userId || '').toLowerCase()));
+    if (rbacUser) {
+      if (user) {
+        user.name = rbacUser.name;
+        if (rbacUser.username) user.username = rbacUser.username;
+        user.email = rbacUser.email;
+        user.role = rbacUser.roleName as any;
+        user.department = rbacUser.department as any;
+      } else {
         user = {
           id: rbacUser.id,
           name: rbacUser.name,
-          email: rbacUser.email || `${rbacUser.id}@cculbresort.com`,
+          username: rbacUser.username || (rbacUser.email ? rbacUser.email.split('@')[0] : rbacUser.id),
+          email: rbacUser.email || `${rbacUser.id}@lesyncpms.com`,
           role: rbacUser.roleName as any,
           department: rbacUser.department as any,
           active: true,
@@ -554,7 +563,8 @@ export const pmsService = {
       }
     }
     if (user) {
-      state.currentUser = user;
+      state.currentUser = { ...user };
+      saveDatabase(state);
       try {
         rbacService.syncActiveUserFromPms(user);
       } catch (e) {

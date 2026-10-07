@@ -10,6 +10,7 @@ import { rbacService } from './rbacService';
 import { pmsService } from './pmsService';
 import { housekeepingService } from './housekeepingService';
 import { inventoryMenuService } from './inventoryMenuService';
+import { supabaseSyncService } from './supabaseSyncService';
 import { DepartmentDef, OutletDef } from '../types/reportingAndRbac';
 import { ActivityItem } from '../types/pms';
 import { HousekeepingAmenity } from '../types/housekeeping';
@@ -1197,6 +1198,16 @@ class AdminMasterService {
     pmsService.logAudit('Reset Navigation Defaults', 'Settings', 'nav-all', undefined, 'Admin restored original factory navigation setup');
   }
 
+  private triggerCloudSync() {
+    try {
+      setTimeout(() => {
+        supabaseSyncService.syncEntirePmsState().catch(e => {
+          console.warn('Background sync after admin master update notice:', e?.message || e);
+        });
+      }, 500);
+    } catch {}
+  }
+
   private saveNavigation() {
     try {
       localStorage.setItem('cculb_admin_navigation_master_v1', JSON.stringify(this.modules));
@@ -1204,6 +1215,7 @@ class AdminMasterService {
       console.warn('Unable to persist navigation config', e);
     }
     this.notify();
+    this.triggerCloudSync();
   }
 
   // =========================================================================
@@ -1263,6 +1275,7 @@ class AdminMasterService {
       console.warn('Unable to persist billing options', e);
     }
     this.notify();
+    this.triggerCloudSync();
   }
 
   // =========================================================================
@@ -1488,6 +1501,7 @@ class AdminMasterService {
       console.warn('Unable to persist departmental items', e);
     }
     this.notify();
+    this.triggerCloudSync();
   }
 
   // =========================================================================

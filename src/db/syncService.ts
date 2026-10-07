@@ -2,6 +2,7 @@ import { eq, desc, sql, notInArray, or } from 'drizzle-orm';
 import { db, pool, isPostgresConfigured } from './index.ts';
 import { ensureDatabaseSchema } from './schemaInitializer.ts';
 import {
+  users,
   pmsSnapshots,
   pmsSyncEvents,
   pmsRooms,
@@ -341,7 +342,24 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
           (fullState.folios?.length || 0) +
           (fullState.payments?.length || 0) +
           (fullState.glAccounts?.length || 0) +
-          (fullState.journalVouchers?.length || 0);
+          (fullState.journalVouchers?.length || 0) +
+          (fullState.users?.length || 0);
+
+        // Sync users to Supabase REST users table
+        if (Array.isArray(fullState.users) && fullState.users.length > 0) {
+          try {
+            const userRows = fullState.users.map((u: any) => ({
+              uid: toSafeString(u.id),
+              email: toSafeString(u.email) || `${toSafeString(u.id)}@lesyncpms.com`,
+              name: toSafeString(u.name),
+              role: toSafeString(u.role || u.roleName || 'Staff'),
+              created_at: u.createdAt || new Date().toISOString()
+            }));
+            await sb.from('users').upsert(userRows, { onConflict: 'uid' });
+          } catch (uErr: any) {
+            console.warn('Notice syncing users via Supabase REST:', uErr?.message || uErr);
+          }
+        }
 
         const { data, error } = await sb
           .from('pms_snapshots')
@@ -439,6 +457,39 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
           lastSyncedAt: new Date(),
         },
       });
+
+    // 0. Sync Users with deduplication & atomic upsert
+    if (Array.isArray(fullState.users) && fullState.users.length > 0) {
+      try {
+        const uniqueUsers = deduplicate(fullState.users, (u) => toSafeString(u.id));
+        for (const u of uniqueUsers) {
+          const uid = toSafeString(u.id);
+          if (!uid) continue;
+          const email = toSafeString(u.email) || `${uid}@lesyncpms.com`;
+          const name = toSafeString(u.name) || 'Staff User';
+          const role = toSafeString(u.role || u.roleName || 'Staff');
+          await db
+            .insert(users)
+            .values({
+              uid,
+              email,
+              name,
+              role,
+              createdAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: users.uid,
+              set: {
+                email,
+                name,
+                role,
+              },
+            });
+        }
+      } catch (userErr: any) {
+        console.warn('PostgreSQL users table sync notice:', userErr?.message || userErr);
+      }
+    }
 
     // 1. Sync Rooms with deduplication & atomic upsert
     if (Array.isArray(fullState.rooms) && fullState.rooms.length > 0) {
@@ -1335,6 +1386,33 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 
 export async function loadLatestPmsSnapshot() {
   if (!isPostgresConfigured()) {
+    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i, '').trim();
+    const sbKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    if (sbUrl && sbKey) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const sb = createClient(sbUrl, sbKey);
+        const { data, error } = await sb
+          .from('pms_snapshots')
+          .select('snapshot_key, version, resort_name, business_date, total_entities, last_synced_at, state_payload')
+          .eq('snapshot_key', 'current_pms_state')
+          .maybeSingle();
+
+        if (!error && data && data.state_payload) {
+          return {
+            version: data.version || 1,
+            resortName: data.resort_name,
+            businessDate: data.business_date,
+            totalEntities: data.total_entities,
+            lastSyncedAt: data.last_synced_at,
+            state: data.state_payload,
+            pmsState: data.state_payload,
+          };
+        }
+      } catch (err: any) {
+        console.warn('Supabase REST loadLatestPmsSnapshot notice:', err?.message || err);
+      }
+    }
     return null;
   }
   try {
@@ -1354,6 +1432,7 @@ export async function loadLatestPmsSnapshot() {
       totalEntities: snapshot.totalEntities,
       lastSyncedAt: snapshot.lastSyncedAt,
       state: snapshot.statePayload,
+      pmsState: snapshot.statePayload,
     };
   } catch (error) {
     console.warn('Failed to load latest PMS snapshot from PostgreSQL:', error);

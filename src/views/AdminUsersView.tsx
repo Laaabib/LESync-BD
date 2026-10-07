@@ -4,11 +4,13 @@ import {
   Search, Filter, Edit3, Trash2, CheckCircle2, AlertTriangle,
   Building, Building2, Phone, Mail, FileText, Check, X, RefreshCw, RotateCcw,
   Plus, Sliders, DollarSign, HelpCircle, Layers, CheckSquare, Square,
-  ChevronRight, AlertCircle, Sparkles, UtensilsCrossed, History, AlertOctagon, Bug
+  ChevronRight, AlertCircle, Sparkles, UtensilsCrossed, History, AlertOctagon, Bug,
+  Database, Cloud
 } from 'lucide-react';
 import { rbacService, MASTER_PERMISSIONS } from '../services/rbacService';
 import { authService } from '../services/authService';
 import { pmsService } from '../services/pmsService';
+import { supabaseSyncService, SupabaseSyncStatus } from '../services/supabaseSyncService';
 import { userErrorTrackerService } from '../services/userErrorTrackerService';
 import { RoleDefinition, DepartmentName, UserContext, ApprovalRule, PermissionDefinition, DepartmentDef } from '../types/reportingAndRbac';
 import { AdminPermissionsTab } from '../components/admin/AdminPermissionsTab';
@@ -145,6 +147,29 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
 
   // Feedback Toast
   const [feedbackToast, setFeedbackToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SupabaseSyncStatus>(() => supabaseSyncService.getStatus());
+  const [isSyncingToCloud, setIsSyncingToCloud] = useState(false);
+
+  useEffect(() => {
+    const unsub = supabaseSyncService.subscribe(setSyncStatus);
+    return unsub;
+  }, []);
+
+  const handleManualSync = async () => {
+    setIsSyncingToCloud(true);
+    try {
+      const res = await supabaseSyncService.syncEntirePmsState();
+      if (res.success) {
+        showToast(`Admin users, roles, and master configurations synchronized to Supabase & SQL! (${res.totalEntities || 'All'} entities)`, 'success');
+      } else {
+        showToast(res.message || 'Sync completed with notices.', 'info');
+      }
+    } catch (err: any) {
+      showToast(`Cloud Sync notice: ${err?.message || 'Sync encountered an error'}`, 'error');
+    } finally {
+      setIsSyncingToCloud(false);
+    }
+  };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setFeedbackToast({ type, message });
@@ -181,11 +206,11 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
       localStorage.setItem('cculb_rbac_users_v1', JSON.stringify(loadedUsers));
     }
 
-    setUsers(loadedUsers);
-    setRoles(loadedRoles);
-    setApprovalRules(loadedRules);
-    setDepartments(loadedDepts);
-    setCredentials(loadedCreds);
+    setUsers([...loadedUsers]);
+    setRoles([...loadedRoles]);
+    setApprovalRules([...loadedRules]);
+    setDepartments([...loadedDepts]);
+    setCredentials({ ...loadedCreds });
 
     if (!selectedRoleForPerms && loadedRoles.length > 0) {
       setSelectedRoleForPerms(loadedRoles[0]);
@@ -195,6 +220,12 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
 
   useEffect(() => {
     loadData();
+    const unsubRbac = rbacService.subscribe(loadData);
+    const unsubAuth = authService.subscribe(loadData);
+    return () => {
+      unsubRbac();
+      unsubAuth();
+    };
   }, []);
 
   useEffect(() => {
@@ -249,8 +280,8 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   };
 
   const handleOpenEditUser = (user: UserContext) => {
-    const cred = credentials[user.id] || {
-      username: user.email.split('@')[0],
+    const cred = credentials[user.id] || authService.getCredentials()[user.id] || {
+      username: user.username || user.email.split('@')[0],
       employeeId: 'EMP-001',
       mobile: '+880 1711-000000',
       property: currentProperty,
@@ -260,7 +291,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
     setEditingUserId(user.id);
     setFormName(user.name);
     setFormEmployeeId(cred.employeeId || 'EMP-001');
-    setFormUsername(cred.username || user.email.split('@')[0]);
+    setFormUsername(cred.username || user.username || user.email.split('@')[0]);
     setFormEmail(user.email);
     setFormMobile(cred.mobile || '+880 1711-000000');
     setFormDepartment(user.department);
@@ -296,6 +327,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
     if (editingUserId) {
       authService.adminUpdateUser(editingUserId, {
         name: formName,
+        username: formUsername,
         email: formEmail,
         department: targetDept,
         roleId: targetRoleId,
@@ -331,6 +363,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
 
     loadData();
     setIsUserModalOpen(false);
+    supabaseSyncService.syncEntirePmsState().catch(err => console.warn('Background sync after user update:', err?.message || err));
   };
 
   const handleToggleUserStatus = (user: UserContext) => {
@@ -598,7 +631,32 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Supabase & Cloud SQL Sync Status Badge & Action */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg">
+            <span className={`w-2.5 h-2.5 rounded-full ${syncStatus.connected ? 'bg-emerald-500' : 'bg-amber-500'} ${isSyncingToCloud || syncStatus.isSyncing ? 'animate-ping' : ''}`} />
+            <div className="flex flex-col text-[10px] leading-tight">
+              <span className="font-bold text-slate-800">
+                {syncStatus.connected ? 'Supabase & SQL Connected' : 'Supabase Cloud Sync'}
+              </span>
+              <span className="text-slate-500">
+                {syncStatus.lastSyncedAt
+                  ? `Synced: ${new Date(syncStatus.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Ready to sync'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={isSyncingToCloud || syncStatus.isSyncing}
+              className="ml-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded flex items-center gap-1.5 transition text-[11px] shadow-2xs"
+              title="Synchronize all admin staff, roles, departments, and security permissions to live Supabase and PostgreSQL cloud database"
+            >
+              <RefreshCw className={`w-3 h-3 ${isSyncingToCloud || syncStatus.isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncingToCloud || syncStatus.isSyncing ? 'Syncing...' : 'Sync to SQL & Supabase'}</span>
+            </button>
+          </div>
+
           {activeTab === 'users' && (
             <button
               onClick={handleOpenCreateUser}
@@ -767,7 +825,9 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
                     Super Admin Central Governance
                   </span>
-                  <span className="text-[11px] text-slate-400 font-medium">Root Authority: Engr. Subrata Roy</span>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    Root Authority: {users.find(u => u.id === 'usr-admin-1')?.name || 'Super Administrator'} (@{credentials['usr-admin-1']?.username || 'admin'})
+                  </span>
                 </div>
                 <h3 className="text-base sm:text-lg font-bold text-white tracking-tight">
                   Single Super Admin Model & User Account Management
@@ -910,7 +970,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                               <div className="text-[10px] text-gray-500 font-mono flex items-center space-x-1.5">
                                 <span>{cred.employeeId || 'EMP-001'}</span>
                                 <span>•</span>
-                                <span>@{cred.username || u.email.split('@')[0]}</span>
+                                <span>@{cred.username || u.username || u.email.split('@')[0]}</span>
                               </div>
                             </div>
                           </div>

@@ -348,11 +348,56 @@ const SEED_USERS: User[] = [
   {
     id: 'usr-admin-1',
     name: 'Engr. Subrata Roy',
+    username: 'admin',
     email: 'admin@lesyncpms.com',
     role: 'Super Admin',
     department: 'Executive Management',
     active: true,
     phone: '+880 1711-000001',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  },
+  {
+    id: 'usr-it-1',
+    name: 'Kazi Tanvir',
+    username: 'itadmin',
+    email: 'it@lesyncpms.com',
+    role: 'Management' as any,
+    department: 'Information Technology',
+    active: true,
+    phone: '+880 1711-000002',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  },
+  {
+    id: 'usr-res-1',
+    name: 'Tahmina Akter',
+    username: 'reservation',
+    email: 'reservation@lesyncpms.com',
+    role: 'Front Desk',
+    department: 'Front Office',
+    active: true,
+    phone: '+880 1711-000003',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  },
+  {
+    id: 'usr-fo-1',
+    name: 'Farhan Ahmed',
+    username: 'frontdesk',
+    email: 'frontdesk@lesyncpms.com',
+    role: 'Front Desk',
+    department: 'Front Office',
+    active: true,
+    phone: '+880 1711-000004',
+    createdAt: '2026-01-01T00:00:00.000Z'
+  },
+  {
+    id: 'usr-acc-1',
+    name: 'Sabrina Khan',
+    username: 'accounts',
+    email: 'accounts@lesyncpms.com',
+    role: 'Accounts',
+    department: 'Finance & Accounts',
+    active: true,
+    phone: '+880 1711-000005',
     createdAt: '2026-01-01T00:00:00.000Z'
   }
 ];
@@ -1703,17 +1748,23 @@ export function getInitialDatabase(): PmsDatabaseState {
       if (!Array.isArray(parsed.floors) || parsed.floors.length === 0) parsed.floors = SEED_FLOORS;
       if (!Array.isArray(parsed.rooms) || parsed.rooms.length === 0) parsed.rooms = SEED_ROOMS;
       if (!Array.isArray(parsed.roomTypes) || parsed.roomTypes.length === 0) parsed.roomTypes = SEED_ROOM_TYPES;
-      if (!Array.isArray(parsed.users)) parsed.users = [SEED_USERS[0]];
+      if (!Array.isArray(parsed.users)) parsed.users = [...SEED_USERS];
       
-      // Keep only Super Admin and any non-demo users created by admin
-      parsed.users = parsed.users.filter((u: any) =>
-        u.id === 'usr-admin-1' || (!u.id.startsWith('usr-gm-') && !u.id.startsWith('usr-fin-') && 
-        !u.id.startsWith('usr-fo-') && !u.id.startsWith('usr-rest-') && !u.id.startsWith('usr-store-') &&
-        !u.id.startsWith('usr-hk-') && !u.id.startsWith('usr-chef-') && !u.id.startsWith('usr-bar-') &&
-        !u.id.startsWith('usr-proc-') && !u.id.startsWith('usr-audit-') && !u.id.startsWith('u-'))
-      );
-      if (parsed.users.length === 0) parsed.users = [SEED_USERS[0]];
-      parsed.currentUser = parsed.users.find((u: any) => u.id === 'usr-admin-1') || parsed.users[0];
+      // Preserve all valid staff users without dropping operational accounts
+      parsed.users = parsed.users.filter((u: any) => u && typeof u === 'object' && u.id);
+      SEED_USERS.forEach(su => {
+        const found = parsed.users.find((u: any) => u.id === su.id);
+        if (!found) {
+          parsed.users.push({ ...su });
+        } else if (!found.username && su.username) {
+          found.username = su.username;
+        }
+      });
+      if (parsed.users.length === 0) parsed.users = [...SEED_USERS];
+      parsed.currentUser = parsed.currentUser || parsed.users.find((u: any) => u.id === 'usr-admin-1') || parsed.users[0];
+      if (parsed.currentUser && !parsed.currentUser.username) {
+        parsed.currentUser.username = parsed.currentUser.email ? parsed.currentUser.email.split('@')[0] : 'admin';
+      }
 
       if (!Array.isArray(parsed.guests)) parsed.guests = [];
       if (!Array.isArray(parsed.guestDocuments)) parsed.guestDocuments = [];

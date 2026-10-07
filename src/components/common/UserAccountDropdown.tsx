@@ -13,7 +13,9 @@ import {
   KeyRound,
   Check,
   UserPlus,
-  Shield
+  Shield,
+  Edit3,
+  User
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
@@ -61,7 +63,9 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
     };
   }, [isOpen, onClose]);
 
-  // Keep users and roles updated with live subscriptions
+  // Keep users, roles and credentials updated with live subscriptions
+  const [liveCreds, setLiveCreds] = useState<Record<string, any>>(() => authService.getCredentials());
+
   useEffect(() => {
     const unsubPms = pmsService.subscribe(() => {
       setUsers(pmsService.getState().users || []);
@@ -69,19 +73,60 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
     const unsubRbac = rbacService.subscribe(() => {
       setRoles(rbacService.getRoles());
     });
+    const unsubAuth = authService.subscribe(() => {
+      setLiveCreds(authService.getCredentials());
+    });
     setRoles(rbacService.getRoles());
     setUsers(pmsService.getState().users || []);
+    setLiveCreds(authService.getCredentials());
     return () => {
       unsubPms();
       unsubRbac();
+      unsubAuth();
     };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const creds = authService.getCredentials()[activeUser.id];
+  const creds = liveCreds[activeUser.id] || authService.getCredentials()[activeUser.id];
+  const displayUsername = creds?.username || activeUser.username || activeUser.email.split('@')[0];
   const employeeId = creds?.employeeId || 'EMP-001';
   const shiftInfo = authService.getActiveShift()?.shiftNumber || 'SFT-M1';
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(activeUser.name || '');
+  const [editUsername, setEditUsername] = useState(displayUsername || '');
+  const [editSaveMsg, setEditSaveMsg] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  useEffect(() => {
+    setEditName(activeUser.name || '');
+    setEditUsername(displayUsername || '');
+  }, [activeUser, creds, displayUsername]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) return;
+    setIsSavingProfile(true);
+    try {
+      const trimmedName = editName.trim();
+      const trimmedUsername = editUsername.trim() || trimmedName.toLowerCase().replace(/\s+/g, '');
+      authService.adminUpdateUser(activeUser.id, {
+        name: trimmedName,
+        username: trimmedUsername
+      });
+      setLiveCreds(authService.getCredentials());
+      setEditSaveMsg('Saved & synced to SQL & Supabase!');
+      setTimeout(() => {
+        setEditSaveMsg('');
+        setIsEditingProfile(false);
+      }, 1200);
+    } catch {
+      setEditSaveMsg('Failed to update profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const isHeader = position === 'header';
 
@@ -109,7 +154,7 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
                 {activeUser.name}
               </h4>
               <p className="text-[11px] text-amber-300 font-semibold truncate mt-0.5">
-                {activeUser.roleName}
+                {activeUser.roleName} <span className="text-slate-400 font-mono text-[10px]">(@{displayUsername})</span>
               </p>
               <p className="text-[10px] text-slate-400 truncate">
                 {activeUser.department}
@@ -184,6 +229,12 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
               </div>
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-gray-500 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-gray-400" /> Username:
+                </span>
+                <span className="font-mono font-bold text-gray-800">@{displayUsername}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-gray-500 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-gray-400" /> Email:
                 </span>
                 <span className="font-medium text-gray-800 truncate max-w-[150px]">{activeUser.email}</span>
@@ -197,6 +248,65 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Inline Name / Username Change Card */}
+            {isEditingProfile ? (
+              <form onSubmit={handleSaveProfile} className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                <p className="text-[11px] font-bold text-blue-900 flex items-center gap-1">
+                  <Edit3 className="w-3.5 h-3.5 text-blue-700" />
+                  <span>Update Name & Username</span>
+                </p>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 block mb-0.5">Full Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    required
+                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="e.g. Labib Zunaedy"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-600 block mb-0.5">Username (Login ID)</label>
+                  <input
+                    type="text"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="e.g. admin"
+                  />
+                </div>
+                {editSaveMsg && (
+                  <p className="text-[10px] font-bold text-emerald-700">{editSaveMsg}</p>
+                )}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <button
+                    type="submit"
+                    disabled={isSavingProfile}
+                    className="flex-1 py-1 px-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded text-[11px] transition"
+                  >
+                    {isSavingProfile ? 'Saving...' : 'Save & Sync'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingProfile(false)}
+                    className="py-1 px-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold rounded text-[11px] transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditingProfile(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 font-bold rounded-lg text-xs transition"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-blue-700" />
+                <span>Edit Profile / Change Name</span>
+              </button>
+            )}
 
             {/* Direct Link to Staff Administration View */}
             <button
