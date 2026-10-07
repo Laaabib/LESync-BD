@@ -509,6 +509,10 @@ class SupabaseSyncService {
     if (Array.isArray(state.users) && state.users.length > 0) {
       state.users.forEach((u: any) => {
         if (u && u.id) {
+          // Never resurrect deleted users
+          if (rbacService.isUserDeleted(u.id)) {
+            return;
+          }
           const userUsername = u.username || (u.email ? u.email.split('@')[0] : u.id);
           rbacService.updateUser(u.id, {
             name: u.name,
@@ -606,6 +610,12 @@ class SupabaseSyncService {
       if (!uErr && Array.isArray(usersData) && usersData.length > 0) {
         usersData.forEach((uRow: any) => {
           if (uRow && uRow.uid) {
+            // Strictly check if user was deleted
+            if (rbacService.isUserDeleted(uRow.uid)) {
+              // Delete from Supabase cloud database to maintain sync
+              Promise.resolve(client.from('users').delete().eq('uid', uRow.uid)).catch(() => {});
+              return;
+            }
             rbacService.updateUser(uRow.uid, {
               name: uRow.name,
               roleName: uRow.role,

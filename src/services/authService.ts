@@ -39,6 +39,7 @@ interface StoredCredential {
 const STORAGE_SESSION_KEY = 'lesync_auth_session_v2';
 const STORAGE_CREDS_KEY = 'lesync_user_credentials_v2';
 const STORAGE_SHIFT_KEY = 'lesync_frontdesk_shift_v2';
+const STORAGE_DELETED_USERS_KEY = 'lesync_deleted_users_v2';
 
 // Pre-seeded credentials (Super Administrator, IT, and Operational Staff master credentials)
 const DEFAULT_CREDENTIALS: Record<string, StoredCredential> = {
@@ -132,24 +133,55 @@ class AuthService {
     this.restoreSession();
   }
 
+  private getDeletedUserIds(): Set<string> {
+    try {
+      const saved = localStorage.getItem(STORAGE_DELETED_USERS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return new Set(parsed);
+      }
+    } catch {}
+    return new Set<string>();
+  }
+
   private loadCredentials() {
     try {
+      const deletedIds = this.getDeletedUserIds();
       const saved = localStorage.getItem(STORAGE_CREDS_KEY);
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          const cleaned: Record<string, StoredCredential> = { ...DEFAULT_CREDENTIALS };
+          const cleaned: Record<string, StoredCredential> = {};
+          
+          // Seed defaults only if not deleted
+          for (const [key, val] of Object.entries(DEFAULT_CREDENTIALS)) {
+            if (!deletedIds.has(key)) {
+              cleaned[key] = { ...val };
+            }
+          }
+
+          // Merge saved credentials
           for (const [key, val] of Object.entries(parsed)) {
-            if (val && typeof val === 'object') {
+            if (val && typeof val === 'object' && !deletedIds.has(key)) {
               cleaned[key] = { ...(cleaned[key] || {}), ...(val as StoredCredential) };
             }
           }
           this.credentials = cleaned;
         } catch {
-          this.credentials = { ...DEFAULT_CREDENTIALS };
+          this.credentials = {};
+          for (const [key, val] of Object.entries(DEFAULT_CREDENTIALS)) {
+            if (!deletedIds.has(key)) {
+              this.credentials[key] = { ...val };
+            }
+          }
         }
       } else {
-        this.credentials = { ...DEFAULT_CREDENTIALS };
+        this.credentials = {};
+        for (const [key, val] of Object.entries(DEFAULT_CREDENTIALS)) {
+          if (!deletedIds.has(key)) {
+            this.credentials[key] = { ...val };
+          }
+        }
         try {
           localStorage.setItem(STORAGE_CREDS_KEY, JSON.stringify(this.credentials));
         } catch {}
@@ -823,13 +855,23 @@ class AuthService {
       return false; // Root Super Admin is protected
     }
 
+    // 1. Mark permanently deleted in auth tombstone
+    const deletedIds = this.getDeletedUserIds();
+    deletedIds.add(userId);
+    try {
+      localStorage.setItem(STORAGE_DELETED_USERS_KEY, JSON.stringify(Array.from(deletedIds)));
+    } catch {}
+
+    // 2. Remove user from RBAC
     rbacService.deleteUser(userId);
 
+    // 3. Remove user from local credentials
     if (this.credentials[userId]) {
       delete this.credentials[userId];
       localStorage.setItem(STORAGE_CREDS_KEY, JSON.stringify(this.credentials));
     }
 
+    // 4. Remove user from PMS state
     const pmsDb = pmsService.getState();
     if (Array.isArray(pmsDb.users)) {
       pmsDb.users = pmsDb.users.filter(u => u.id !== userId);
@@ -847,7 +889,17 @@ class AuthService {
       }
     }
     pmsService.notify();
-    pmsService.logAudit('Deleted User', 'User', userId, undefined, `Super Admin deleted user account ${userId}`);
+    pmsService.logAudit('Deleted User', 'User', userId, undefined, `Super Admin permanently deleted user account ${userId}`);
+
+    // 5. Trigger cloud synchronization and database deletion
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(err => {
+          console.warn('[Supabase] Background sync notice after user deletion:', err?.message || err);
+        });
+      }).catch(() => {});
+    } catch {}
+
     return true;
   }
 

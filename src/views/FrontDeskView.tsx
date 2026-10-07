@@ -3,7 +3,7 @@ import {
   ConciergeBell, LogIn, LogOut, BedDouble, Users, ArrowRightLeft,
   Receipt, FileText, Search, PlusCircle, Printer, Filter, ShieldCheck,
   ShieldAlert, Lock, Unlock, AlertTriangle, X, CheckCircle2, Info,
-  Zap, Clock, Calendar, Sparkles, AlertCircle, Check
+  Zap, Clock, Calendar, Sparkles, AlertCircle, Check, XCircle
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { PmsDatabaseState, getOffsetDate } from '../services/mockPmsDatabase';
@@ -43,6 +43,23 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
   const [stopPostCustomReason, setStopPostCustomReason] = useState('');
   const [stopPostActionSuccess, setStopPostActionSuccess] = useState<string | null>(null);
 
+  // Arrivals cancellation state
+  const [cancellingArrival, setCancellingArrival] = useState<Reservation | null>(null);
+  const [arrivalCancelReason, setArrivalCancelReason] = useState<string>('Guest requested cancellation at front desk');
+  const [frontDeskToast, setFrontDeskToast] = useState<string | null>(null);
+
+  const handleConfirmCancelArrival = () => {
+    if (!cancellingArrival) return;
+    try {
+      pmsService.cancelReservation(cancellingArrival.id, arrivalCancelReason || 'Cancelled at Front Desk Arrivals');
+      setFrontDeskToast(`Reservation ${cancellingArrival.reservationNumber} for ${cancellingArrival.guestName} has been cancelled. Room released and removed from Arrivals.`);
+      setCancellingArrival(null);
+      setTimeout(() => setFrontDeskToast(null), 5000);
+    } catch (err: any) {
+      setFrontDeskToast(`Failed to cancel: ${err?.message || err}`);
+    }
+  };
+
   useEffect(() => {
     return pmsService.subscribe(setDb);
   }, []);
@@ -60,9 +77,14 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
   // In-house active stays
   const inHouseStays = useMemo(() => db.stays.filter(s => s.status === 'Active'), [db.stays]);
 
-  // All confirmed / active upcoming reservations
+  // All confirmed / active upcoming reservations (Strictly excludes Cancelled, Checked-In, and Checked-Out)
   const allConfirmed = useMemo(() => 
-    db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'),
+    db.reservations.filter(r => 
+      (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+      r.status !== 'Cancelled' &&
+      r.status !== 'Checked-In' &&
+      r.status !== 'Checked-Out'
+    ),
     [db.reservations]
   );
 
@@ -632,6 +654,17 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                             <LogIn className="w-3.5 h-3.5" />
                             <span>Check-In</span>
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancellingArrival(res);
+                              setArrivalCancelReason('Guest requested cancellation at front desk');
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Cancel this arrival reservation"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1056,6 +1089,57 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Arrival Cancellation Confirmation Modal */}
+      {cancellingArrival && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs text-gray-800">
+            <div className="flex items-center space-x-2.5 text-rose-600">
+              <XCircle className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-gray-900 text-sm">Cancel Arrival {cancellingArrival.reservationNumber}?</h4>
+            </div>
+            <p className="text-gray-600">
+              Are you sure you want to cancel the scheduled arrival for <strong className="text-gray-900 font-semibold">{cancellingArrival.guestName}</strong>?
+              The room will be released immediately and this booking will be removed from all upcoming check-in queues.
+            </p>
+            <div>
+              <label className="text-[11px] font-bold text-gray-600 block mb-1">Reason for Cancellation:</label>
+              <input
+                type="text"
+                value={arrivalCancelReason}
+                onChange={(e) => setArrivalCancelReason(e.target.value)}
+                placeholder="e.g. Guest called to cancel, no-show"
+                className="w-full bg-gray-50 border border-gray-300 rounded px-2.5 py-1.5 text-gray-900 text-xs focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setCancellingArrival(null)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded text-xs transition"
+              >
+                Keep Arrival
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelArrival}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Confirm Cancellation</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Front Desk Toast Notification */}
+      {frontDeskToast && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-lg shadow-xl text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{frontDeskToast}</span>
         </div>
       )}
     </div>

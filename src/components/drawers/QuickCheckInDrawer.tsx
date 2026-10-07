@@ -14,7 +14,8 @@ import {
   IdCard,
   Sparkles,
   Filter,
-  Check
+  Check,
+  XCircle
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { PaymentMethod, Room } from '../../types/pms';
@@ -79,11 +80,24 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
   const [paymentDetails, setPaymentDetails] = useState<Partial<PaymentTenderDetails>>({});
   const [specialRequests, setSpecialRequests] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [successNotice, setSuccessNotice] = useState<string>('');
+  const [isConfirmingCancel, setIsConfirmingCancel] = useState<boolean>(false);
+  const [cancelReason, setCancelReason] = useState<string>('Guest requested cancellation at front desk');
+
+  // Pending eligible check-in reservations (Strictly excludes Cancelled, Checked-In, and Checked-Out)
+  const eligibleReservations = useMemo(() => {
+    return (db.reservations || []).filter(r => 
+      (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+      r.status !== 'Cancelled' &&
+      r.status !== 'Checked-In' &&
+      r.status !== 'Checked-Out'
+    );
+  }, [db.reservations]);
 
   // Update guest ID info whenever selected reservation changes
   const populateFromReservation = (resId: string) => {
     const res = db.reservations.find(r => r.id === resId);
-    if (res) {
+    if (res && res.status !== 'Cancelled') {
       setResRate(res.rate || 0);
       if (res.assignedRoomId) {
         setSelectedRoomId(res.assignedRoomId);
@@ -133,21 +147,28 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
   useEffect(() => {
     if (isOpen) {
       setError('');
+      setSuccessNotice('');
+      setIsConfirmingCancel(false);
       setDepositAmount('');
       setKeyCardsCount(1);
       setPaymentRef('');
       setPaymentDetails({});
       setSelectedCategoryFilter('all');
-      if (effectiveResId) {
+      
+      const targetRes = effectiveResId ? eligibleReservations.find(r => r.id === effectiveResId) : null;
+      if (targetRes) {
         setCheckInMode('reservation');
-        setSelectedResId(effectiveResId);
-        populateFromReservation(effectiveResId);
-      } else {
-        const confirmed = db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending');
-        if (confirmed.length > 0) {
+        setSelectedResId(targetRes.id);
+        populateFromReservation(targetRes.id);
+      } else if (effectiveResId) {
+        const rawRes = (db.reservations || []).find(r => r.id === effectiveResId);
+        if (rawRes?.status === 'Cancelled') {
+          setError(`Reservation ${rawRes.reservationNumber} for ${rawRes.guestName} was cancelled and cannot be checked in.`);
+        }
+        if (eligibleReservations.length > 0) {
           setCheckInMode('reservation');
-          setSelectedResId(confirmed[0].id);
-          populateFromReservation(confirmed[0].id);
+          setSelectedResId(eligibleReservations[0].id);
+          populateFromReservation(eligibleReservations[0].id);
         } else {
           setCheckInMode('walkin');
           const firstAvail = db.rooms.find(r => 
@@ -163,9 +184,46 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
             setSelectedRoomId('');
           }
         }
+      } else if (eligibleReservations.length > 0) {
+        setCheckInMode('reservation');
+        setSelectedResId(eligibleReservations[0].id);
+        populateFromReservation(eligibleReservations[0].id);
+      } else {
+        setCheckInMode('walkin');
+        const firstAvail = db.rooms.find(r => 
+          r.active && 
+          (r.operationalStatus === 'Available' || r.operationalStatus === 'Inspected') &&
+          !db.stays.some(s => s.roomId === r.id && s.status === 'Active')
+        );
+        if (firstAvail) {
+          setSelectedRoomId(firstAvail.id);
+          const rt = db.roomTypes.find(t => t.id === firstAvail.roomTypeId);
+          setWalkInRate(rt?.baseRate || 4500);
+        } else {
+          setSelectedRoomId('');
+        }
       }
     }
-  }, [isOpen, effectiveResId]);
+  }, [isOpen, effectiveResId, eligibleReservations]);
+
+  // Keep selected reservation in sync if it gets cancelled externally while open
+  useEffect(() => {
+    if (isOpen && checkInMode === 'reservation' && selectedResId) {
+      const stillValid = eligibleReservations.find(r => r.id === selectedResId);
+      if (!stillValid) {
+        const rawRes = (db.reservations || []).find(r => r.id === selectedResId);
+        if (rawRes?.status === 'Cancelled') {
+          setError(`Reservation ${rawRes.reservationNumber} was cancelled and removed from Check-In queue.`);
+        }
+        if (eligibleReservations.length > 0) {
+          setSelectedResId(eligibleReservations[0].id);
+          populateFromReservation(eligibleReservations[0].id);
+        } else {
+          handleSwitchToWalkin();
+        }
+      }
+    }
+  }, [isOpen, eligibleReservations, checkInMode, selectedResId, db.reservations]);
 
   // Handle switching to Walk-In mode
   const handleSwitchToWalkin = () => {
@@ -197,18 +255,35 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
   const handleSwitchToReservation = () => {
     setCheckInMode('reservation');
     setError('');
-    if (selectedResId) {
+    if (selectedResId && eligibleReservations.some(r => r.id === selectedResId)) {
       populateFromReservation(selectedResId);
     } else {
-      const confirmed = db.reservations.filter(r => r.status === 'Confirmed');
-      if (confirmed.length > 0) {
-        setSelectedResId(confirmed[0].id);
-        populateFromReservation(confirmed[0].id);
+      if (eligibleReservations.length > 0) {
+        setSelectedResId(eligibleReservations[0].id);
+        populateFromReservation(eligibleReservations[0].id);
       }
     }
   };
 
-  const currentRes = db.reservations.find(r => r.id === selectedResId);
+  const currentRes = db.reservations.find(r => r.id === selectedResId && r.status !== 'Cancelled');
+
+  const handleExecuteCancelReservation = () => {
+    if (!currentRes) return;
+    try {
+      pmsService.cancelReservation(currentRes.id, cancelReason);
+      setIsConfirmingCancel(false);
+      setSuccessNotice(`Reservation ${currentRes.reservationNumber} for ${currentRes.guestName} has been cancelled and removed from Check-In.`);
+      const remaining = eligibleReservations.filter(r => r.id !== currentRes.id);
+      if (remaining.length > 0) {
+        setSelectedResId(remaining[0].id);
+        populateFromReservation(remaining[0].id);
+      } else {
+        handleSwitchToWalkin();
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to cancel reservation.');
+    }
+  };
 
   // Helper: test if room is generally available for check-in today
   const isRoomCandidate = (r: Room, forResId?: string) => {
@@ -224,7 +299,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
     if (r.operationalStatus === 'Reserved') {
       // In reservation mode, if this room is pre-assigned to the current reservation, it is eligible
       if (forResId) {
-        const res = db.reservations.find(resItem => resItem.id === forResId);
+        const res = db.reservations.find(resItem => resItem.id === forResId && resItem.status !== 'Cancelled');
         if (res && res.assignedRoomId === r.id) return true;
       }
       // If reserved for someone else with a confirmed reservation arriving today, exclude it
@@ -232,7 +307,8 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
       const otherRes = db.reservations.find(resItem => 
         resItem.id !== forResId && 
         resItem.assignedRoomId === r.id && 
-        resItem.status === 'Confirmed' &&
+        (resItem.status === 'Confirmed' || resItem.status === 'Unconfirmed' || (resItem.status as string) === 'Pending') &&
+        resItem.status !== 'Cancelled' &&
         resItem.arrivalDate <= todayStr
       );
       if (otherRes) return false;
@@ -323,6 +399,23 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
     if (checkInMode === 'reservation') {
       if (!selectedResId) {
         setError('Please select a reservation to check in.');
+        return;
+      }
+      const targetRes = (db.reservations || []).find(r => r.id === selectedResId);
+      if (!targetRes) {
+        setError('Selected reservation record not found.');
+        return;
+      }
+      if (targetRes.status === 'Cancelled') {
+        setError(`Reservation ${targetRes.reservationNumber} for ${targetRes.guestName} has been cancelled and cannot be checked in.`);
+        return;
+      }
+      if (targetRes.status === 'Checked-In') {
+        setError(`Reservation ${targetRes.reservationNumber} is already checked in.`);
+        return;
+      }
+      if (targetRes.status === 'Checked-Out') {
+        setError(`Reservation ${targetRes.reservationNumber} has already completed checkout.`);
         return;
       }
     } else {
@@ -467,7 +560,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Reserved Arrival ({db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').length})
+              Reserved Arrival ({eligibleReservations.length})
             </button>
             <button
               type="button"
@@ -485,6 +578,13 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleConfirmCheckIn} className="flex-1 overflow-y-auto p-4 space-y-3.5">
+          {successNotice && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-300 flex items-start space-x-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+              <span>{successNotice}</span>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded text-rose-300 flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -498,7 +598,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
               <label className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
                 <span>Select Pending Reservation:</span>
                 <span className="text-[10px] text-emerald-400 font-mono">
-                  {db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').length} Pending Waiting
+                  {eligibleReservations.length} Pending Waiting
                 </span>
               </label>
               <select
@@ -509,7 +609,7 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
                 }}
                 className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-amber-500 text-xs"
               >
-                {db.reservations.filter(r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending').map(r => (
+                {eligibleReservations.map(r => (
                   <option key={r.id} value={r.id}>
                     {r.reservationNumber} — {r.guestName} ({r.roomTypeName}) [{r.arrivalDate} to {r.departureDate}]
                   </option>
@@ -559,6 +659,21 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
                       />
                     </div>
                     <span className="text-[9px] text-slate-400 block mt-0.5">Editable for corporate rates, discounts, or flexible agreed price.</span>
+                  </div>
+
+                  <div className="col-span-2 pt-2 border-t border-slate-800 flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400">Guest wants to cancel this booking?</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCancelReason('Guest requested cancellation at front desk');
+                        setIsConfirmingCancel(true);
+                      }}
+                      className="px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded text-[10px] font-bold flex items-center space-x-1 transition"
+                    >
+                      <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Cancel This Reservation</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -1097,6 +1212,49 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
             <span>Confirm & Check-In Guest</span>
           </button>
         </div>
+
+        {/* Cancellation Confirmation Dialog */}
+        {isConfirmingCancel && currentRes && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs">
+              <div className="flex items-center space-x-2.5 text-rose-400">
+                <XCircle className="w-5 h-5 shrink-0" />
+                <h4 className="font-bold text-slate-100 text-sm">Cancel Booking {currentRes.reservationNumber}?</h4>
+              </div>
+              <p className="text-slate-300">
+                Are you sure you want to cancel the reservation for <strong className="text-white font-semibold">{currentRes.guestName}</strong>?
+                The room will be released immediately and this booking will be removed from all upcoming check-in queues.
+              </p>
+              <div>
+                <label className="text-[11px] font-bold text-slate-400 block mb-1">Reason for Cancellation:</label>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. Guest change of plans, flight cancelled"
+                  className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:border-rose-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingCancel(false)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded text-xs transition"
+                >
+                  Keep Booking
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecuteCancelReservation}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Confirm Cancellation</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

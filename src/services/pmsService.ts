@@ -1087,6 +1087,8 @@ export const pmsService = {
       if (room && room.operationalStatus === 'Reserved') {
         room.operationalStatus = 'Available';
       }
+      res.assignedRoomId = undefined;
+      res.assignedRoomNumber = undefined;
     }
     if (res.allocatedRooms && res.allocatedRooms.length > 0) {
       res.allocatedRooms.forEach(ar => {
@@ -1097,10 +1099,21 @@ export const pmsService = {
           }
         }
       });
+      res.allocatedRooms = [];
     }
 
     this.logAudit('Cancelled Reservation', 'Reservation', res.id, 'Confirmed', `Cancelled: ${reason || 'Guest requested'}`);
+    this.addAlert('info', `Reservation Cancelled: ${res.reservationNumber}`, `${res.reservationNumber} for ${res.guestName} has been cancelled.`, 'View Reservations', 'reservations');
     notify();
+
+    // Trigger cloud synchronization in the background
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(err => {
+          console.warn('[Supabase] Background sync notice after reservation cancellation:', err?.message || err);
+        });
+      }).catch(() => {});
+    } catch {}
   },
 
   // -------------------------------------------------------------
@@ -1143,7 +1156,11 @@ export const pmsService = {
   }): { stay: Stay; folio: Folio } {
     const res = state.reservations.find(r => r.id === params.reservationId);
     if (!res) throw new Error('Reservation not found');
+    if (res.status === 'Cancelled') {
+      throw new Error(`Cannot check in reservation ${res.reservationNumber}: reservation has already been cancelled.`);
+    }
     if (res.status === 'Checked-In') throw new Error('Reservation is already checked in');
+    if (res.status === 'Checked-Out') throw new Error('Reservation is already completed and checked out');
 
     const room = state.rooms.find(r => r.id === params.roomId);
     if (!room) throw new Error('Room not found');
@@ -3956,6 +3973,19 @@ export const pmsService = {
       if (room && room.operationalStatus === 'Reserved') {
         room.operationalStatus = 'Available';
       }
+      res.assignedRoomId = undefined;
+      res.assignedRoomNumber = undefined;
+    }
+    if (res.allocatedRooms && res.allocatedRooms.length > 0) {
+      res.allocatedRooms.forEach(ar => {
+        if (ar.roomId) {
+          const room = state.rooms.find(r => r.id === ar.roomId);
+          if (room && room.operationalStatus === 'Reserved') {
+            room.operationalStatus = 'Available';
+          }
+        }
+      });
+      res.allocatedRooms = [];
     }
 
     res.status = 'Cancelled';

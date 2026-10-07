@@ -72,7 +72,10 @@ export const RoomActionModal: React.FC<RoomActionModalProps> = ({
   const reservation = useMemo(() => {
     const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
     return (db.reservations || []).find(r => {
-      const isPending = r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending';
+      const isPending = (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+        r.status !== 'Cancelled' &&
+        r.status !== 'Checked-In' &&
+        r.status !== 'Checked-Out';
       if (!isPending) return false;
       const isDue = r.arrivalDate === todayStr || r.arrivalDate <= todayStr;
       if (!isDue) return false;

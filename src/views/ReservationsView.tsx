@@ -28,6 +28,9 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [sourceFilter, setSourceFilter] = useState<string>('All');
   const [typeFilter, setTypeFilter] = useState<'All' | 'Group' | 'Corporate'>('All');
+  const [cancellingRes, setCancellingRes] = useState<Reservation | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('Guest requested cancellation');
+  const [cancelToast, setCancelToast] = useState<string | null>(null);
 
   useEffect(() => {
     return pmsService.subscribe(setDb);
@@ -146,9 +149,15 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
     }
   };
 
-  const handleCancelReservation = (resId: string) => {
-    if (window.confirm('Are you sure you want to cancel this reservation?')) {
-      pmsService.cancelReservation(resId, 'Cancelled from Reservations Desk');
+  const handleConfirmCancellation = () => {
+    if (!cancellingRes) return;
+    try {
+      pmsService.cancelReservation(cancellingRes.id, cancelReason || 'Cancelled from Reservations Desk');
+      setCancelToast(`Reservation ${cancellingRes.reservationNumber} for ${cancellingRes.guestName} was cancelled successfully. Room released & removed from Check-In queues.`);
+      setCancellingRes(null);
+      setTimeout(() => setCancelToast(null), 5000);
+    } catch (err: any) {
+      setCancelToast(`Error: ${err?.message || 'Could not cancel reservation.'}`);
     }
   };
 
@@ -486,7 +495,7 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                        {res.status === 'Confirmed' && (
+                        {(res.status === 'Confirmed' || res.status === 'Unconfirmed' || (res.status as string) === 'Pending') && (
                           <button
                             onClick={() => onOpenCheckIn(res.id)}
                             className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-[11px] transition-colors"
@@ -494,9 +503,12 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
                             Check-In
                           </button>
                         )}
-                        {res.status === 'Confirmed' && (
+                        {(res.status === 'Confirmed' || res.status === 'Unconfirmed' || (res.status as string) === 'Pending') && (
                           <button
-                            onClick={() => handleCancelReservation(res.id)}
+                            onClick={() => {
+                              setCancellingRes(res);
+                              setCancelReason('Guest requested cancellation at front desk');
+                            }}
                             title="Cancel Reservation"
                             className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
                           >
@@ -512,6 +524,57 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Cancellation Confirmation Dialog */}
+      {cancellingRes && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs text-slate-200">
+            <div className="flex items-center space-x-2.5 text-rose-400">
+              <XCircle className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-slate-100 text-sm">Cancel Reservation {cancellingRes.reservationNumber}?</h4>
+            </div>
+            <p className="text-slate-300">
+              Are you sure you want to cancel the booking for <strong className="text-white font-semibold">{cancellingRes.guestName}</strong>?
+              The allocated room will be released immediately and this reservation will be removed from all active check-in lists.
+            </p>
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 block mb-1">Reason for Cancellation:</label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Guest change of plans, flight cancelled"
+                className="w-full bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 text-xs focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setCancellingRes(null)}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded text-xs transition"
+              >
+                Keep Booking
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancellation}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Confirm Cancellation</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {cancelToast && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-lg shadow-xl text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{cancelToast}</span>
+        </div>
+      )}
     </div>
   );
 };

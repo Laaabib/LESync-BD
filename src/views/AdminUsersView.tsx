@@ -375,9 +375,16 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
     const currentStatus = cred ? cred.status : 'Active';
     const nextStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
 
-    authService.adminUpdateUser(user.id, { status: nextStatus });
+    authService.adminUpdateUser(user.id, { 
+      status: nextStatus,
+      ...(nextStatus === 'Inactive' ? { customPermissions: [] } : {})
+    });
     loadData();
-    showToast(`User ${user.name} status updated to ${nextStatus}.`);
+    showToast(
+      nextStatus === 'Inactive'
+        ? `User ${user.name} marked Inactive. Active role and permission assignments revoked.`
+        : `User ${user.name} status updated to Active.`
+    );
   };
 
   const handleDeleteUser = (user: UserContext) => {
@@ -392,7 +399,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
     if (!deletingUser) return;
     const success = authService.adminDeleteUser(deletingUser.id);
     if (success) {
-      showToast(`User account ${deletingUser.name} (${deletingUser.email}) was deleted successfully.`);
+      showToast(`User account ${deletingUser.name} (${deletingUser.email}) and all permissions were permanently deleted.`);
       loadData();
     } else {
       showToast('Could not delete this user account.', 'error');
@@ -410,6 +417,12 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   // INDIVIDUAL USER PERMISSIONS OVERRIDES
   // -------------------------------------------------------------
   const handleOpenUserPermissions = (user: UserContext) => {
+    const cred = credentials[user.id];
+    const isInactive = cred ? cred.status !== 'Active' : false;
+    if (isInactive) {
+      showToast(`Cannot assign permissions to inactive user ${user.name}. Activate user first.`, 'error');
+      return;
+    }
     setSelectedUserForPerms(user);
     setUserCustomPerms(user.customPermissions ? [...user.customPermissions] : []);
     setUserDeniedPerms(user.deniedPermissions ? [...user.deniedPermissions] : []);
@@ -943,6 +956,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     };
 
                     const isLocked = cred.lockedUntil && cred.lockedUntil > Date.now();
+                    const isInactive = cred.status !== 'Active' || (u as any).active === false;
                     const hasOverrides = (u.customPermissions && u.customPermissions.length > 0) || (u.deniedPermissions && u.deniedPermissions.length > 0);
                     const isRootAdmin = u.id === 'usr-admin-1' || u.roleName === 'Super Admin';
 
@@ -1051,11 +1065,16 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                             {/* Individual Permissions Button */}
                             <button
                               onClick={() => handleOpenUserPermissions(u)}
-                              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded font-bold text-[11px] transition-colors flex items-center space-x-1"
-                              title="Configure individual permissions overrides for this user"
+                              disabled={isInactive}
+                              className={`px-2.5 py-1 rounded font-bold text-[11px] transition-colors flex items-center space-x-1 ${
+                                isInactive
+                                  ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed opacity-60'
+                                  : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
+                              }`}
+                              title={isInactive ? 'Account is inactive — active permissions are disabled' : 'Configure individual permissions overrides for this user'}
                             >
-                              <Key className="w-3 h-3 text-amber-600" />
-                              <span>Permissions</span>
+                              <Key className={`w-3 h-3 ${isInactive ? 'text-gray-400' : 'text-amber-600'}`} />
+                              <span>{isInactive ? 'Inactive' : 'Permissions'}</span>
                             </button>
 
                             {isLocked && (
@@ -1156,8 +1175,11 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                       <span className="text-blue-700 font-mono font-semibold">
                         {(r.permissions || []).includes('*') ? 'Full System (*)' : `${(r.permissions || []).length} capabilities`}
                       </span>
-                      <span className="text-gray-400">Scope: {r.defaultDataScope}</span>
+                      <span className="text-emerald-700 font-mono font-semibold">
+                        {users.filter(u => u.roleId === r.id && !rbacService.isUserDeleted(u.id) && ((credentials[u.id] ? credentials[u.id].status === 'Active' : (u as any).active !== false))).length} Active Staff
+                      </span>
                     </div>
+                    <div className="text-[9px] text-gray-400 mt-0.5">Scope: {r.defaultDataScope}</div>
                   </div>
                 );
               })}
@@ -1178,6 +1200,21 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     </span>
                   </div>
                   <p className="text-[11px] text-gray-500 mt-0.5">{selectedRoleForPerms.description}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span className="text-[10px] text-gray-500 font-semibold">Active Assigned Staff:</span>
+                    {users.filter(u => u.roleId === selectedRoleForPerms.id && !rbacService.isUserDeleted(u.id) && ((credentials[u.id] ? credentials[u.id].status === 'Active' : (u as any).active !== false))).length === 0 ? (
+                      <span className="text-[10px] text-amber-600 italic">No active staff currently assigned to this role profile</span>
+                    ) : (
+                      users
+                        .filter(u => u.roleId === selectedRoleForPerms.id && !rbacService.isUserDeleted(u.id) && ((credentials[u.id] ? credentials[u.id].status === 'Active' : (u as any).active !== false)))
+                        .map(u => (
+                          <span key={u.id} className="px-1.5 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded text-[10px] font-medium flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            <span>{u.name}</span>
+                          </span>
+                        ))
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center space-x-2">

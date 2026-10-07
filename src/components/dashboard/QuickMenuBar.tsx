@@ -4,7 +4,7 @@ import {
   LogIn, LogOut, Receipt, Sparkles, ShieldCheck, Star, Search,
   Printer, Download, RefreshCw, FileSpreadsheet, BarChart3,
   ArrowUpRight, ArrowDownRight, BedDouble, CheckCircle2, Filter,
-  Clock, AlertTriangle, Building2, UserCheck, DollarSign, ExternalLink, Eye
+  Clock, AlertTriangle, Building2, UserCheck, DollarSign, ExternalLink, Eye, XCircle
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { PmsDatabaseState } from '../../services/mockPmsDatabase';
@@ -626,6 +626,22 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [cancellingRes, setCancellingRes] = useState<Reservation | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('Guest requested cancellation at front desk');
+  const [cancelFeedback, setCancelFeedback] = useState<string | null>(null);
+
+  const handleConfirmCancel = () => {
+    if (!cancellingRes) return;
+    try {
+      pmsService.cancelReservation(cancellingRes.id, cancelReason);
+      setCancelFeedback(`Reservation ${cancellingRes.reservationNumber} for ${cancellingRes.guestName} was successfully cancelled.`);
+      setCancellingRes(null);
+      setTimeout(() => setCancelFeedback(null), 4000);
+    } catch (err: any) {
+      alert(err?.message || 'Could not cancel reservation.');
+    }
+  };
+
   const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   if (!isOpen) return null;
@@ -663,9 +679,12 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
     return matchSearch && matchStatus;
   });
 
-  // Upcoming Check-In Report Data (Arrivals)
+  // Upcoming Check-In Report Data (Arrivals - strictly excludes cancelled or checked-in)
   const arrivals = reservations.filter(r => 
     (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
+    r.status !== 'Cancelled' &&
+    r.status !== 'Checked-In' &&
+    r.status !== 'Checked-Out' &&
     (r.arrivalDate === todayStr || r.arrivalDate <= todayStr)
   );
   const filteredArrivals = arrivals.filter(r => {
@@ -1265,17 +1284,29 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
                             ৳{((res as any).balanceAmount || (res.totalEstimatedAmount - (res.paidAmount || 0))).toLocaleString()}
                           </td>
                           <td className="px-3.5 py-2.5 text-center">
-                            {onOpenCheckIn && (
+                            <div className="flex items-center justify-center space-x-1.5">
+                              {onOpenCheckIn && (
+                                <button
+                                  onClick={() => {
+                                    onClose();
+                                    onOpenCheckIn(res.id);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px] shadow-xs"
+                                >
+                                  Check-In
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
-                                  onClose();
-                                  onOpenCheckIn(res.id);
+                                  setCancellingRes(res);
+                                  setCancelReason('Guest requested cancellation at front desk');
                                 }}
-                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px] shadow-xs"
+                                title="Cancel Reservation"
+                                className="p-1 text-gray-400 hover:text-rose-600 rounded transition-colors"
                               >
-                                Check-In
+                                <XCircle className="w-4 h-4" />
                               </button>
-                            )}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1467,6 +1498,57 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
             Close Report
           </button>
         </div>
+
+        {/* Cancellation Confirmation Dialog */}
+        {cancellingRes && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+            <div className="bg-white rounded-xl border border-gray-200 p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs text-gray-800">
+              <div className="flex items-center space-x-2.5 text-rose-600">
+                <XCircle className="w-5 h-5 shrink-0" />
+                <h4 className="font-bold text-gray-900 text-sm">Cancel Reservation {cancellingRes.reservationNumber}?</h4>
+              </div>
+              <p className="text-gray-600">
+                Are you sure you want to cancel the booking for <strong className="text-gray-900 font-semibold">{cancellingRes.guestName}</strong>?
+                The room will be released immediately and this booking will be removed from upcoming arrivals.
+              </p>
+              <div>
+                <label className="text-[11px] font-bold text-gray-600 block mb-1">Reason for Cancellation:</label>
+                <input
+                  type="text"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. Guest change of plans, flight cancelled"
+                  className="w-full bg-gray-50 border border-gray-300 rounded px-2.5 py-1.5 text-gray-900 text-xs focus:border-rose-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setCancellingRes(null)}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded text-xs transition"
+                >
+                  Keep Booking
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCancel}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Confirm Cancellation</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancellation Feedback Toast */}
+        {cancelFeedback && (
+          <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-lg shadow-xl text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{cancelFeedback}</span>
+          </div>
+        )}
       </div>
     </div>
   );

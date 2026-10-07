@@ -3,7 +3,7 @@ import {
   Grid3X3, CheckCircle2, AlertTriangle, Search, Filter,
   ArrowRightLeft, Sparkles, UserCheck, BedDouble, Calendar,
   DollarSign, ShieldAlert, Layers, Clock, X, ChevronRight,
-  TrendingUp, TrendingDown, RefreshCw, Lock
+  TrendingUp, TrendingDown, RefreshCw, Lock, XCircle
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { PmsDatabaseState } from '../services/mockPmsDatabase';
@@ -40,6 +40,25 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
   } | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Cancellation state
+  const [cancellingRes, setCancellingRes] = useState<Reservation | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('Guest requested cancellation at front desk');
+
+  const handleConfirmCancelReservation = () => {
+    if (!cancellingRes) return;
+    try {
+      pmsService.cancelReservation(cancellingRes.id, cancelReason);
+      setSuccessMessage(`Reservation ${cancellingRes.reservationNumber} for ${cancellingRes.guestName} was successfully cancelled. Room released and removed from check-in queues.`);
+      setCancellingRes(null);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err: any) {
+      setValidationError({
+        title: 'CANCELLATION FAILED',
+        message: err?.message || 'Could not cancel reservation.'
+      });
+    }
+  };
+
   useEffect(() => {
     return pmsService.subscribe(setDb);
   }, []);
@@ -48,7 +67,9 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
 
   // Active reservations that require room assignment or management
   const activeReservations = db.reservations.filter(r => 
-    r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending' || r.status === 'Checked-In'
+    (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending' || r.status === 'Checked-In') &&
+    r.status !== 'Cancelled' &&
+    r.status !== 'Checked-Out'
   );
 
   const filteredReservations = activeReservations.filter(res => {
@@ -497,13 +518,26 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
                             </button>
                           )}
 
-                          {res.status !== 'Checked-In' && isDueToday && (
+                          {res.status !== 'Checked-In' && res.status !== 'Cancelled' && isDueToday && (
                             <button
                               onClick={() => onOpenCheckIn(res.id)}
                               className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold transition-colors shadow-xs flex items-center space-x-1"
                             >
                               <UserCheck className="w-3.5 h-3.5" />
                               <span>Check-In</span>
+                            </button>
+                          )}
+
+                          {res.status !== 'Checked-In' && res.status !== 'Cancelled' && (
+                            <button
+                              onClick={() => {
+                                setCancellingRes(res);
+                                setCancelReason('Guest requested cancellation at front desk');
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                              title="Cancel this reservation"
+                            >
+                              <XCircle className="w-4 h-4" />
                             </button>
                           )}
                         </div>
@@ -708,6 +742,57 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Cancellation Confirmation Modal */}
+      {cancellingRes && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs text-gray-800">
+            <div className="flex items-center space-x-2.5 text-rose-600">
+              <XCircle className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-gray-900 text-sm">Cancel Reservation {cancellingRes.reservationNumber}?</h4>
+            </div>
+            <p className="text-gray-600">
+              Are you sure you want to cancel the reservation for <strong className="text-gray-900 font-semibold">{cancellingRes.guestName}</strong>?
+              Any pre-assigned room will be released immediately and this booking will be removed from all arrival and room assignment lists.
+            </p>
+            <div>
+              <label className="text-[11px] font-bold text-gray-600 block mb-1">Reason for Cancellation:</label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Guest change of plans, cancelled booking"
+                className="w-full bg-gray-50 border border-gray-300 rounded px-2.5 py-1.5 text-gray-900 text-xs focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setCancellingRes(null)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded text-xs transition"
+              >
+                Keep Booking
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelReservation}
+                className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Confirm Cancellation</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Notification */}
+      {successMessage && (
+        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 border border-emerald-500/50 text-emerald-300 px-4 py-2.5 rounded-lg shadow-xl text-xs flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{successMessage}</span>
         </div>
       )}
     </div>

@@ -1686,6 +1686,7 @@ export const DEFAULT_REPORT_ROLE_CONFIG: ReportRoleManagementConfig = {
 class RbacManager {
   private roles: RoleDefinition[] = [];
   private users: UserContext[] = [];
+  private deletedUserIds: Set<string> = new Set();
   private approvalRules: ApprovalRule[] = [];
   private departments: DepartmentDef[] = [];
   private outlets: OutletDef[] = [];
@@ -1695,6 +1696,16 @@ class RbacManager {
   private userChangeListeners: ((user: UserContext) => void)[] = [];
 
   constructor() {
+    try {
+      const savedDeleted = localStorage.getItem('cculb_deleted_users_v1');
+      if (savedDeleted) {
+        const parsed = JSON.parse(savedDeleted);
+        if (Array.isArray(parsed)) {
+          this.deletedUserIds = new Set(parsed);
+        }
+      }
+    } catch {}
+
     let savedRoles: string | null = null;
     try {
       savedRoles = localStorage.getItem('cculb_roles_v1');
@@ -1752,8 +1763,13 @@ class RbacManager {
     }
 
     if (!Array.isArray(loadedUsers)) loadedUsers = [...INITIAL_STAFF_USERS];
-    // Always guarantee that core staff users exist
+    
+    // Purge any deleted users immediately
+    loadedUsers = loadedUsers.filter(u => !this.deletedUserIds.has(u.id));
+
+    // Guarantee that core staff users exist ONLY IF they have not been deleted
     INITIAL_STAFF_USERS.forEach(su => {
+      if (this.deletedUserIds.has(su.id)) return;
       const existing = loadedUsers.find(u => u.id === su.id);
       if (!existing) {
         loadedUsers.push({ ...su });
@@ -1764,7 +1780,7 @@ class RbacManager {
       }
     });
 
-    if (loadedUsers.length === 0) loadedUsers = [...INITIAL_STAFF_USERS];
+    if (loadedUsers.length === 0) loadedUsers = [INITIAL_STAFF_USERS[0]];
 
     // Self-heal: ensure any user designated as Super Admin has roleId 'role-super-admin' and Enterprise/All Properties scope, while preserving custom name & username
     loadedUsers = loadedUsers.map(u => {
@@ -1869,7 +1885,7 @@ class RbacManager {
   }
 
   public getUsers(): UserContext[] {
-    return [...this.users];
+    return this.users.filter(u => !this.deletedUserIds.has(u.id));
   }
 
   public getActiveUser(): UserContext {
@@ -1931,6 +1947,8 @@ class RbacManager {
   public isSuperAdmin(user?: UserContext): boolean {
     const u = user || this.activeUser;
     if (!u) return false;
+    if (this.deletedUserIds.has(u.id)) return false;
+    if ((u as any).active === false || (u as any).status === 'Inactive' || (u as any).status === 'Suspended' || (u as any).status === 'Locked') return false;
     if (u.id === 'usr-admin-1') return true;
     if (u.roleId === 'role-super-admin') return true;
     const rName = (u.roleName || '').toLowerCase().trim();
@@ -1957,6 +1975,8 @@ class RbacManager {
   public isDeveloperOrIT(user?: UserContext): boolean {
     const u = user || this.activeUser;
     if (!u) return false;
+    if (this.deletedUserIds.has(u.id)) return false;
+    if ((u as any).active === false || (u as any).status === 'Inactive' || (u as any).status === 'Suspended' || (u as any).status === 'Locked') return false;
     if (this.isSuperAdmin(u)) return true;
 
     const roleId = (u.roleId || '').toLowerCase().trim();
@@ -2022,6 +2042,11 @@ class RbacManager {
 
   public isModuleAllowed(module: MainModuleName, targetUser?: UserContext): boolean {
     const user = targetUser || this.activeUser;
+    if (!user) return false;
+    if (this.deletedUserIds.has(user.id)) return false;
+    if ((user as any).active === false || (user as any).status === 'Inactive' || (user as any).status === 'Suspended' || (user as any).status === 'Locked') {
+      return false;
+    }
     // Super Administrator has 100% unrestricted access to ALL system modules
     if (this.isSuperAdmin(user)) return true;
     if (module === 'dashboard') return true;
@@ -2038,6 +2063,12 @@ class RbacManager {
   public hasPermission(permission: string, targetUser?: UserContext): boolean {
     const user = targetUser || this.activeUser;
     if (!user) return false;
+    if (this.deletedUserIds.has(user.id)) return false;
+
+    // Inactive, Suspended, or Locked users have NO active permissions
+    if ((user as any).active === false || (user as any).status === 'Inactive' || (user as any).status === 'Suspended' || (user as any).status === 'Locked') {
+      return false;
+    }
 
     // Super Administrator has unrestricted root permissions across all operations
     if (this.isSuperAdmin(user)) return true;
@@ -2085,6 +2116,15 @@ class RbacManager {
     customDenied: string[];
     effectiveKeys: string[];
   } {
+    if (!user || this.deletedUserIds.has(user.id) || (user as any).active === false || (user as any).status === 'Inactive' || (user as any).status === 'Suspended' || (user as any).status === 'Locked') {
+      return {
+        rolePermissions: [],
+        customGranted: [],
+        customDenied: [],
+        effectiveKeys: []
+      };
+    }
+
     const role = this.roles.find(r => r.id === user.roleId) || this.roles[0];
     const rolePerms = role.permissions || [];
     const customGranted = user.customPermissions || [];
@@ -2130,8 +2170,14 @@ class RbacManager {
   }
 
   public updateUserPermissions(userId: string, customPermissions: string[], deniedPermissions: string[]): UserContext | null {
+    if (this.deletedUserIds.has(userId)) return null;
     const idx = this.users.findIndex(u => u.id === userId);
     if (idx === -1) return null;
+
+    const user = this.users[idx];
+    if ((user as any).active === false || (user as any).status === 'Inactive' || (user as any).status === 'Suspended' || (user as any).status === 'Locked') {
+      throw new Error('Cannot assign permissions to an inactive, suspended, or locked user account.');
+    }
 
     this.users[idx].customPermissions = customPermissions;
     this.users[idx].deniedPermissions = deniedPermissions;
@@ -2150,6 +2196,12 @@ class RbacManager {
   }
 
   public addUser(user: UserContext) {
+    if (this.deletedUserIds.has(user.id)) {
+      this.deletedUserIds.delete(user.id);
+      try {
+        localStorage.setItem('cculb_deleted_users_v1', JSON.stringify(Array.from(this.deletedUserIds)));
+      } catch {}
+    }
     let normalized = { ...user };
     const rName = (user.roleName || '').toLowerCase().trim();
     if (user.id === 'usr-admin-1' || user.roleId === 'role-super-admin' || rName === 'super admin' || rName === 'super administrator' || rName.includes('super admin') || rName.includes('super administrator')) {
@@ -2169,6 +2221,7 @@ class RbacManager {
   }
 
   public updateUser(userId: string, updates: Partial<UserContext>): UserContext | null {
+    if (this.deletedUserIds.has(userId)) return null;
     const idx = this.users.findIndex(u => u.id === userId);
     if (idx === -1) return null;
 
@@ -2180,6 +2233,16 @@ class RbacManager {
       merged.department = 'Executive Management';
       merged.dataScope = 'All Properties';
     }
+
+    // If user is marked inactive or suspended, clear active permission overrides
+    if ((merged as any).active === false || (merged as any).status === 'Inactive' || (merged as any).status === 'Suspended' || (merged as any).status === 'Locked') {
+      (merged as any).active = false;
+      merged.customPermissions = [];
+      merged.deniedPermissions = [];
+    } else if ((merged as any).status === 'Active') {
+      (merged as any).active = true;
+    }
+
     this.users[idx] = merged;
     if (this.activeUser.id === userId || (this.activeUser.email && merged.email && this.activeUser.email.toLowerCase() === merged.email.toLowerCase())) {
       this.activeUser = { ...this.users[idx] };
@@ -2192,15 +2255,50 @@ class RbacManager {
 
   public deleteUser(userId: string): boolean {
     if (this.users.length <= 1 || userId === 'usr-admin-1') return false;
+
+    // 1. Mark permanently deleted in tombstone
+    this.deletedUserIds.add(userId);
+    try {
+      localStorage.setItem('cculb_deleted_users_v1', JSON.stringify(Array.from(this.deletedUserIds)));
+    } catch {}
+
+    // 2. Remove user completely from active users list
     this.users = this.users.filter(u => u.id !== userId);
     localStorage.setItem('cculb_rbac_users_v1', JSON.stringify(this.users));
+
+    // 3. Clear active user if it was deleted
     if (this.activeUser.id === userId) {
       this.activeUser = this.users[0];
-      localStorage.setItem('cculb_active_user_id', this.activeUser.id);
+      try {
+        localStorage.setItem('cculb_active_user_id', this.activeUser.id);
+      } catch {}
       this.notifyUserChange(this.activeUser);
     }
+
+    // 4. Remove deleted user from any approval rules
+    if (Array.isArray(this.approvalRules)) {
+      let rulesChanged = false;
+      this.approvalRules.forEach(rule => {
+        if (rule.requiredRoleIds && rule.requiredRoleIds.includes(userId)) {
+          rule.requiredRoleIds = rule.requiredRoleIds.filter(id => id !== userId);
+          rulesChanged = true;
+        }
+      });
+      if (rulesChanged) {
+        localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(this.approvalRules));
+      }
+    }
+
     this.notify();
     return true;
+  }
+
+  public isUserDeleted(userId: string): boolean {
+    return this.deletedUserIds.has(userId);
+  }
+
+  public getDeletedUserIds(): string[] {
+    return Array.from(this.deletedUserIds);
   }
 
   public updateRole(updatedRole: RoleDefinition) {
@@ -2364,6 +2462,9 @@ class RbacManager {
 
   public canManageReportRoles(user?: UserContext): boolean {
     const targetUser = user || this.activeUser;
+    if (!targetUser) return false;
+    if (this.deletedUserIds.has(targetUser.id)) return false;
+    if ((targetUser as any).active === false || (targetUser as any).status === 'Inactive' || (targetUser as any).status === 'Suspended' || (targetUser as any).status === 'Locked') return false;
     return (
       targetUser.roleName === 'Super Admin' ||
       targetUser.department === 'Executive Management' ||
@@ -2376,6 +2477,9 @@ class RbacManager {
 
   public canUserViewAllDepartmentReports(user?: UserContext): boolean {
     const targetUser = user || this.activeUser;
+    if (!targetUser) return false;
+    if (this.deletedUserIds.has(targetUser.id)) return false;
+    if ((targetUser as any).active === false || (targetUser as any).status === 'Inactive' || (targetUser as any).status === 'Suspended' || (targetUser as any).status === 'Locked') return false;
     // Executive and Super Admin
     if (targetUser.roleName === 'Super Admin' || targetUser.department === 'Executive Management' || targetUser.department === 'Internal Audit') {
       return true;
@@ -2520,6 +2624,9 @@ class RbacManager {
    */
   public isReportAllowed(reportPermission: string, reportCategory: string, user?: UserContext): boolean {
     const targetUser = user || this.activeUser;
+    if (!targetUser) return false;
+    if (this.deletedUserIds.has(targetUser.id)) return false;
+    if ((targetUser as any).active === false || (targetUser as any).status === 'Inactive' || (targetUser as any).status === 'Suspended' || (targetUser as any).status === 'Locked') return false;
     // Super Administrator has unrestricted audit access to all reports
     if (this.isSuperAdmin(targetUser)) {
       return true;
