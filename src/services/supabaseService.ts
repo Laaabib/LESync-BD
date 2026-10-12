@@ -34,6 +34,10 @@ export function getSupabaseConfig(): SupabaseConfig {
     _serverFetchedUrl ||
     '';
   const envKey =
+    (import.meta as any).env?.SUPABASE_SECRET_KEY ||
+    (import.meta as any).env?.SUPABASE_SERVICE_ROLE_KEY ||
+    (import.meta as any).env?.SUPABASE_PUBLISHABLE_KEY ||
+    (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
     (import.meta as any).env?.SUPABASE_ANON_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_KEY ||

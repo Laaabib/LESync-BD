@@ -3,7 +3,7 @@ import {
   Database, RefreshCw, CheckCircle2, AlertTriangle,
   Server, ShieldCheck, Clock, Layers, Users, BedDouble, Receipt,
   Check, FileText, Sparkles, Terminal, Copy, Download,
-  ExternalLink, ArrowDownToLine, ArrowUpRight, Zap, Settings2, Key, Globe
+  ExternalLink, ArrowDownToLine, ArrowUpRight, Zap, Settings2, Key, Globe, Eye, EyeOff
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { rbacService } from '../services/rbacService';
@@ -33,8 +33,21 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
   const [supabaseUrlInput, setSupabaseUrlInput] = useState(getSupabaseConfig().url || '');
   const [supabaseKeyInput, setSupabaseKeyInput] = useState(getSupabaseConfig().key || '');
   const [connStringInput, setConnStringInput] = useState('');
+  const [showConnString, setShowConnString] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [isTestingCredentials, setIsTestingCredentials] = useState(false);
   const [copiedVercelEnv, setCopiedVercelEnv] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/supabase/config')
+      .then(r => r.json())
+      .then(data => {
+        if (data?.url && !supabaseUrlInput) setSupabaseUrlInput(data.url);
+        if (data?.key && !supabaseKeyInput) setSupabaseKeyInput(data.key);
+        if (data?.connectionString && !connStringInput) setConnStringInput(data.connectionString);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (initialTab) {
@@ -332,11 +345,21 @@ VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-slate-400 block font-medium mb-1">
-                    Supabase Anon Public API Key
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] text-slate-400 font-medium">
+                      Supabase Anon Public API Key
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center space-x-1"
+                    >
+                      {showApiKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showApiKey ? 'Hide' : 'Show'}</span>
+                    </button>
+                  </div>
                   <input
-                    type="password"
+                    type={showApiKey ? 'text' : 'password'}
                     value={supabaseKeyInput}
                     onChange={(e) => setSupabaseKeyInput(e.target.value)}
                     placeholder="eyJhbGciOiJIUzI1NiIsIn..."
@@ -345,14 +368,24 @@ VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-slate-400 block font-medium mb-1">
-                    PostgreSQL Connection URI (Optional)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] text-slate-400 font-medium">
+                      PostgreSQL Connection URI (Supabase / Direct)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowConnString(!showConnString)}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 flex items-center space-x-1"
+                    >
+                      {showConnString ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showConnString ? 'Hide' : 'Show'}</span>
+                    </button>
+                  </div>
                   <input
-                    type="password"
+                    type={showConnString ? 'text' : 'password'}
                     value={connStringInput}
                     onChange={(e) => setConnStringInput(e.target.value)}
-                    placeholder="postgresql://postgres.[ref]:[pass]@aws-0-[region].pooler.supabase.com:6543/postgres"
+                    placeholder="postgresql://postgres:password@host:5432/postgres"
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
                   />
                 </div>

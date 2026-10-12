@@ -290,6 +290,10 @@ class UserErrorTrackerService {
   }
 
   private loadState() {
+    if (typeof window === 'undefined') {
+      this.errors = [...INITIAL_SEEDED_ERRORS];
+      return;
+    }
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -307,6 +311,7 @@ class UserErrorTrackerService {
   }
 
   private saveState() {
+    if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.errors));
     } catch (e) {
@@ -568,6 +573,23 @@ class UserErrorTrackerService {
 
   public clearResolvedErrors(): void {
     this.errors = this.errors.filter(e => e.status !== 'Resolved');
+    this.saveState();
+  }
+
+  public resolveAllErrors(resolvedBy = 'System Administrator', notes = 'Batch resolved by Administrator'): void {
+    const now = new Date().toISOString();
+    this.errors = this.errors.map(e => ({
+      ...e,
+      status: 'Resolved',
+      resolvedAt: now,
+      resolvedBy,
+      resolutionNotes: notes
+    }));
+    this.saveState();
+  }
+
+  public clearAllErrors(): void {
+    this.errors = [];
     this.saveState();
   }
 

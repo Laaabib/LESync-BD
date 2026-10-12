@@ -310,6 +310,18 @@ export const AdminErrorFinderTab: React.FC<AdminErrorFinderTabProps> = ({
 
           <button
             onClick={() => {
+              userErrorTrackerService.resolveAllErrors();
+              if (onShowToast) onShowToast('All errors marked as Resolved successfully.', 'success');
+            }}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+            title="Mark all errors as Resolved"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Resolve All</span>
+          </button>
+
+          <button
+            onClick={() => {
               userErrorTrackerService.clearResolvedErrors();
               if (onShowToast) onShowToast('Cleaned up resolved error incidents from active registry.', 'info');
             }}
@@ -318,6 +330,18 @@ export const AdminErrorFinderTab: React.FC<AdminErrorFinderTabProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
             <span>Purge Resolved</span>
+          </button>
+
+          <button
+            onClick={() => {
+              userErrorTrackerService.clearAllErrors();
+              if (onShowToast) onShowToast('All error records cleared completely.', 'info');
+            }}
+            className="px-3 py-1.5 bg-rose-900/60 hover:bg-rose-800 text-rose-200 font-bold rounded-xl text-xs transition-colors border border-rose-700/50 flex items-center space-x-1.5 cursor-pointer"
+            title="Clear all recorded errors"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            <span>Clear All</span>
           </button>
         </div>
       </div>

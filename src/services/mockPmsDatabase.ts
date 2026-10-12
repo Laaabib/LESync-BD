@@ -23,6 +23,7 @@ import {
   SEED_PRICE_HISTORIES
 } from './mockInventoryData';
 
+export { SEED_SUPPLIERS };
 const STORAGE_KEY = 'cculb_pms_db_v1';
 
 export interface PmsDatabaseState {
@@ -344,7 +345,7 @@ const DEFAULT_SETTINGS: SystemSetting = {
   lateCheckoutGraceMinutes: 30
 };
 
-const SEED_USERS: User[] = [
+export const SEED_USERS: User[] = [
   {
     id: 'usr-admin-1',
     name: 'Engr. Subrata Roy',
@@ -402,7 +403,7 @@ const SEED_USERS: User[] = [
   }
 ];
 
-const SEED_ROOM_TYPES: RoomType[] = [
+export const SEED_ROOM_TYPES: RoomType[] = [
   {
     id: 'rt-1',
     name: 'Presidential Suite',
@@ -531,138 +532,133 @@ export const SEED_FLOORS: Floor[] = [
     isSmokingAllowed: false,
     active: true,
     description: 'Ultra-luxury penthouse and Presidential suites with personal butler service'
+  },
+  {
+    id: 'fl-10',
+    floorNumber: 10,
+    name: '10th Floor - Tower Wing Suites',
+    code: 'FL-10',
+    building: 'Main Resort Complex',
+    wing: 'Tower Wing',
+    keyCardPrefix: 'KC-10',
+    isSmokingAllowed: false,
+    active: true,
+    description: 'Suites and Deluxe rooms from 1001 to 1055'
+  },
+  {
+    id: 'fl-11',
+    floorNumber: 11,
+    name: '11th Floor - Skyline Executive',
+    code: 'FL-11',
+    building: 'Main Resort Complex',
+    wing: 'Tower Wing',
+    keyCardPrefix: 'KC-11',
+    isSmokingAllowed: false,
+    active: true,
+    description: 'Executive Suites and Rooms from 1056 to 1110'
   }
 ];
 
-function generate116Rooms(): Room[] {
+export function generate110RoomsStartingWith1001(): Room[] {
   const rooms: Room[] = [];
 
-  const specificOverrides: Record<string, Partial<Room>> = {
-    '101': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '102': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '103': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Reserved', housekeepingStatus: 'Clean' },
-    '104': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Dirty', housekeepingStatus: 'Dirty' },
-    '105': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '106': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '107': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Out of Order', housekeepingStatus: 'Dirty', notes: 'AC compressor unit repair' },
-    '108': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '109': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '110': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '111': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Cleaning', housekeepingStatus: 'Cleaning' },
-    '112': { roomTypeId: 'rt-6', roomTypeName: 'Standard Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
+  for (let num = 1001; num <= 1110; num++) {
+    const roomNumStr = String(num);
+    const floor = num <= 1055 ? 10 : 11;
+    const wing = floor === 10 ? 'Tower Wing - Suites' : 'Tower Wing - Skyline Executive';
 
-    '201': { roomTypeId: 'rt-4', roomTypeName: 'Family Deluxe', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '202': { roomTypeId: 'rt-4', roomTypeName: 'Family Deluxe', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '203': { roomTypeId: 'rt-4', roomTypeName: 'Family Deluxe', operationalStatus: 'Reserved', housekeepingStatus: 'Clean' },
-    '204': { roomTypeId: 'rt-4', roomTypeName: 'Family Deluxe', operationalStatus: 'Cleaning', housekeepingStatus: 'Cleaning' },
-    '205': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '206': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '207': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Inspected', housekeepingStatus: 'Inspected' },
-    '208': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '209': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '210': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '211': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Dirty', housekeepingStatus: 'Dirty' },
-    '212': { roomTypeId: 'rt-5', roomTypeName: 'Deluxe Room', operationalStatus: 'Out of Service', housekeepingStatus: 'Dirty', notes: 'Paint touch-up' },
+    // Room type distribution across the 110 rooms:
+    let roomTypeId = 'rt-5';
+    let roomTypeName = 'Deluxe Room';
+    let features = ['High-Speed Wi-Fi', 'Balcony', 'Smart TV 50"', 'Mini Bar', 'Air Conditioned'];
+    let amenities = ['King Bed', 'Rain Shower', 'Safety Locker', 'Electric Kettle', 'Hair Dryer'];
 
-    '301': { roomTypeId: 'rt-3', roomTypeName: 'Honeymoon Suite', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '302': { roomTypeId: 'rt-3', roomTypeName: 'Honeymoon Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '303': { roomTypeId: 'rt-3', roomTypeName: 'Honeymoon Suite', operationalStatus: 'Reserved', housekeepingStatus: 'Clean' },
-    '304': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '305': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '306': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Dirty', housekeepingStatus: 'Dirty' },
-
-    '401': { roomTypeId: 'rt-1', roomTypeName: 'Presidential Suite', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '402': { roomTypeId: 'rt-1', roomTypeName: 'Presidential Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '403': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-
-    '1001': { roomTypeId: 'rt-1', roomTypeName: 'Presidential Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '1002': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '1003': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Reserved', housekeepingStatus: 'Clean' },
-    '1004': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Dirty', housekeepingStatus: 'Dirty' },
-    '1005': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '1006': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Occupied', housekeepingStatus: 'Clean' },
-    '1007': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Available', housekeepingStatus: 'Clean' },
-    '1008': { roomTypeId: 'rt-2', roomTypeName: 'Royal Suite', operationalStatus: 'Inspected', housekeepingStatus: 'Inspected' }
-  };
-
-  // Floors 1 to 9 (12 rooms per floor = 108 rooms)
-  for (let floor = 1; floor <= 9; floor++) {
-    for (let r = 1; r <= 12; r++) {
-      const roomNumStr = `${floor}${r < 10 ? '0' + r : r}`;
-      const override = specificOverrides[roomNumStr];
-
-      let roomTypeId = 'rt-5';
-      let roomTypeName = 'Deluxe Room';
-
-      if (floor <= 2) {
-        if (r <= 6) { roomTypeId = 'rt-6'; roomTypeName = 'Standard Room'; }
-        else { roomTypeId = 'rt-5'; roomTypeName = 'Deluxe Room'; }
-      } else if (floor <= 5) {
-        if (r <= 6) { roomTypeId = 'rt-5'; roomTypeName = 'Deluxe Room'; }
-        else { roomTypeId = 'rt-4'; roomTypeName = 'Family Deluxe'; }
-      } else if (floor <= 7) {
-        if (r <= 8) { roomTypeId = 'rt-5'; roomTypeName = 'Deluxe Room'; }
-        else { roomTypeId = 'rt-3'; roomTypeName = 'Honeymoon Suite'; }
-      } else {
-        if (r <= 8) { roomTypeId = 'rt-5'; roomTypeName = 'Deluxe Room'; }
-        else { roomTypeId = 'rt-2'; roomTypeName = 'Royal Suite'; }
-      }
-
-      let opStatus: OperationalStatus = 'Available';
-      let hkStatus: HousekeepingStatus = 'Clean';
-
-      if ((floor + r) % 5 === 0) {
-        opStatus = 'Occupied';
-      } else if ((floor + r) % 11 === 0) {
-        opStatus = 'Reserved';
-      } else if ((floor * 3 + r) % 13 === 0) {
-        opStatus = 'Dirty';
-        hkStatus = 'Dirty';
-      } else if (floor === 5 && r === 7) {
-        opStatus = 'Out of Order';
-        hkStatus = 'Dirty';
-      }
-
-      rooms.push({
-        id: `rm-${roomNumStr}`,
-        roomNumber: roomNumStr,
-        roomTypeId: override?.roomTypeId || roomTypeId,
-        roomTypeName: override?.roomTypeName || roomTypeName,
-        floor,
-        operationalStatus: override?.operationalStatus || opStatus,
-        housekeepingStatus: override?.housekeepingStatus || hkStatus,
-        active: true,
-        notes: override?.notes
-      });
+    if (num === 1001 || num === 1002 || num === 1109 || num === 1110) {
+      // 4 Presidential Suites
+      roomTypeId = 'rt-1';
+      roomTypeName = 'Presidential Suite';
+      features = ['Private Butler Service', 'Panoramic Sky View Balcony', 'Jacuzzi', 'Executive Workstation', 'Bang & Olufsen Sound System'];
+      amenities = ['Master King Bed', 'Living Lounge', 'Dine-in Bar', 'Walk-in Closet', 'Hermès Toiletries', 'Nespresso Coffee Machine'];
+    } else if ((num >= 1003 && num <= 1010) || (num >= 1101 && num <= 1108)) {
+      // 16 Royal Suites
+      roomTypeId = 'rt-2';
+      roomTypeName = 'Royal Suite';
+      features = ['Club Lounge Access', 'Private Balcony', 'Living Room', 'Smart TV 55"', 'High-speed Wi-Fi'];
+      amenities = ['King Bed', 'Bathtub', 'Plush Robes & Slippers', 'Complimentary High Tea', 'Mini Bar'];
+    } else if (num >= 1011 && num <= 1025) {
+      // 15 Honeymoon Suites
+      roomTypeId = 'rt-3';
+      roomTypeName = 'Honeymoon Suite';
+      features = ['Romantic Balcony', 'Jacuzzi Bath', 'Mood Lighting', 'Aromatherapy Setup', 'Smart TV 50"'];
+      amenities = ['Canopy King Bed', 'Flower Arrangement', 'Complimentary Cake & Wine', 'Breakfast in Bed'];
+    } else if (num >= 1026 && num <= 1050) {
+      // 25 Family Deluxe
+      roomTypeId = 'rt-4';
+      roomTypeName = 'Family Deluxe';
+      features = ['Twin Double Beds', 'Kids Play Corner', 'Pool View Balcony', 'Microwave & Kettle', 'Smart TV 43"'];
+      amenities = ['2 Queen Beds', 'Attached Modern Bath', 'Extra Crib Available', 'Tea/Coffee Station'];
+    } else if (num >= 1051 && num <= 1085) {
+      // 35 Deluxe Rooms
+      roomTypeId = 'rt-5';
+      roomTypeName = 'Deluxe Room';
+      features = ['Balcony', 'City / Lake View', 'Workstation', 'Smart TV 43"', 'High-speed Wi-Fi'];
+      amenities = ['Queen Bed', 'Walk-in Shower', 'Complimentary Breakfast', 'Mini Fridge'];
+    } else {
+      // 15 Standard Rooms (1086 to 1100)
+      roomTypeId = 'rt-6';
+      roomTypeName = 'Standard Room';
+      features = ['LED TV', 'Wi-Fi', 'Work Table', 'Air Conditioned'];
+      amenities = ['Double Bed', 'Attached Bath', 'Complimentary Breakfast', 'Kettle'];
     }
-  }
 
-  // Floor 10 (8 rooms = 1001 to 1008) -> 108 + 8 = 116 total rooms
-  for (let r = 1; r <= 8; r++) {
-    const roomNumStr = `100${r}`;
-    const override = specificOverrides[roomNumStr];
+    // Realistic operational statuses:
+    let operationalStatus: OperationalStatus = 'Available';
+    let housekeepingStatus: HousekeepingStatus = 'Clean';
 
-    const isPres = r <= 2;
-    const roomTypeId = isPres ? 'rt-1' : 'rt-2';
-    const roomTypeName = isPres ? 'Presidential Suite' : 'Royal Suite';
+    if (num % 7 === 0) {
+      operationalStatus = 'Occupied';
+      housekeepingStatus = 'Clean';
+    } else if (num % 13 === 0) {
+      operationalStatus = 'Reserved';
+      housekeepingStatus = 'Clean';
+    } else if (num % 23 === 0) {
+      operationalStatus = 'Dirty';
+      housekeepingStatus = 'Dirty';
+    } else if (num % 37 === 0) {
+      operationalStatus = 'Cleaning';
+      housekeepingStatus = 'Cleaning';
+    } else if (num % 29 === 0) {
+      operationalStatus = 'Inspected';
+      housekeepingStatus = 'Inspected';
+    }
+
+    const rate = roomTypeId === 'rt-1' ? 28000 : roomTypeId === 'rt-2' ? 18500 : roomTypeId === 'rt-3' ? 15000 : roomTypeId === 'rt-4' ? 12500 : roomTypeId === 'rt-5' ? 8500 : 5500;
 
     rooms.push({
       id: `rm-${roomNumStr}`,
       roomNumber: roomNumStr,
-      roomTypeId: override?.roomTypeId || roomTypeId,
-      roomTypeName: override?.roomTypeName || roomTypeName,
-      floor: 10,
-      operationalStatus: override?.operationalStatus || 'Available',
-      housekeepingStatus: override?.housekeepingStatus || 'Clean',
+      roomTypeId,
+      roomTypeName,
+      floor,
+      building: 'Main Resort Complex',
+      wing,
+      rate,
+      baseRate: rate,
+      isSmoking: false,
+      keyCardCode: `KC-${roomNumStr}`,
+      features,
+      amenities,
+      operationalStatus,
+      housekeepingStatus,
       active: true,
-      notes: override?.notes
+      notes: num === 1001 ? 'VIP Presidential Suite' : undefined
     });
   }
 
   return rooms;
 }
 
-const SEED_ROOMS: Room[] = generate116Rooms();
+const SEED_ROOMS: Room[] = generate110RoomsStartingWith1001();
 
 
 const SEED_GUESTS: Guest[] = [
@@ -931,27 +927,70 @@ export const SEED_MENU_CATEGORIES: MenuCategory[] = [
   { id: 'cat-1', name: 'Traditional Bengali & Royal Feast', active: true },
   { id: 'cat-2', name: 'Grills, Steaks & BBQ', active: true },
   { id: 'cat-3', name: 'Continental & Italian', active: true },
-  { id: 'cat-4', name: 'Oriental & Chinese', active: true },
-  { id: 'cat-5', name: 'Beverages & Fresh Juices', active: true },
-  { id: 'cat-6', name: 'Desserts & Sweet Delights', active: true }
+  { id: 'cat-4', name: 'Oriental & Pan-Asian', active: true },
+  { id: 'cat-5', name: 'Beverages, Mocktails & Juices', active: true },
+  { id: 'cat-6', name: 'Desserts & Sweet Delights', active: true },
+  { id: 'cat-7', name: 'Appetizers, Soups & Salads', active: true },
+  { id: 'cat-8', name: 'Breakfast & All-Day Dining', active: true }
 ];
 
 export const SEED_MENU_ITEMS: MenuItem[] = [
+  // 1. Traditional Bengali & Royal Feast
   { id: 'mi-1', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Special Mutton Kacchi Biryani', description: 'Traditional aromatic basmati rice cooked with tender mutton cuts, saffron, aloo, and boiled egg. Served with borhani & salad.', price: 650, active: true },
   { id: 'mi-2', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Padma River Hilsha Curry (Mustard/Sorshe)', description: 'Fresh Padma Ilish cooked in pungent mustard gravy with green chillies. Served with steamed rice.', price: 850, active: true },
   { id: 'mi-3', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Bhuna Khichuri with Beef Kala Bhuna', description: 'Moong dal khichuri paired with authentic Chittagong style slow-braised beef kala bhuna.', price: 720, active: true },
   { id: 'mi-4', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Rupchanda Fish Fry with Salad', description: 'Whole marinated Rupchanda shallow fried to golden perfection with lemon and tartar dip.', price: 780, active: true },
+  { id: 'mi-13', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Shorshe Chingri Malai Curry', description: 'Jumbo river prawns simmered in fragrant coconut milk and mild mustard gravy.', price: 750, active: true },
+  { id: 'mi-14', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Shahi Morog Polao with Boiled Egg', description: 'Traditional country chicken braised in rich ghee, yogurt, fried onions and aromatic chinigura rice.', price: 540, active: true },
+  { id: 'mi-15', categoryId: 'cat-1', categoryName: 'Traditional Bengali & Royal Feast', name: 'Chittagong Beef Rezala', description: 'Tender beef cubes slow-simmered in rich cashew, poppy seed, and aromatic whole spice gravy.', price: 580, active: true },
 
+  // 2. Grills, Steaks & BBQ
   { id: 'mi-5', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'Grilled Jumbo King Prawns (4 Pcs)', description: 'Garlic butter basted jumbo river prawns with sautéed veggies and herb rice.', price: 1250, active: true },
   { id: 'mi-6', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'T-Bone Beef Steak (300g)', description: 'Imported prime beef cooked to preference with mushroom peppercorn sauce and mashed potato.', price: 1650, active: true },
   { id: 'mi-7', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'Chicken Tikka Butter Masala & Butter Naan', description: 'Charcoal grilled chicken cubes simmered in rich creamy tomato cashew gravy with 2 butter naans.', price: 580, active: true },
+  { id: 'mi-16', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'Charcoal Grilled Mutton Seekh Kebab (4 Pcs)', description: 'Minced spiced mutton skewer roasted in clay tandoor oven, served with mint chutney and paratha.', price: 620, active: true },
+  { id: 'mi-17', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'BBQ Grilled Norwegian Salmon Fillet', description: 'Atlantic salmon steak pan-grilled with lemon herb butter sauce, asparagus, and parsley potatoes.', price: 1450, active: true },
+  { id: 'mi-18', categoryId: 'cat-2', categoryName: 'Grills, Steaks & BBQ', name: 'Mixed Sizzler Platter (Beef, Chicken & Prawn)', description: 'Sizzling hot platter of beef tenderloin medallions, grilled chicken breast, and king prawns.', price: 1550, active: true },
 
+  // 3. Continental & Italian
   { id: 'mi-8', categoryId: 'cat-3', categoryName: 'Continental & Italian', name: 'Fettuccine Alfredo with Grilled Chicken', description: 'Fresh fettuccine pasta tossed in rich parmesan cream sauce with grilled chicken breast slices.', price: 620, active: true },
   { id: 'mi-9', categoryId: 'cat-3', categoryName: 'Continental & Italian', name: 'Wood-Fired Pizza Quattro Formaggi (12")', description: 'Mozzarella, cheddar, gorgonzola, and parmesan on hand-stretched thin crust.', price: 890, active: true },
+  { id: 'mi-19', categoryId: 'cat-3', categoryName: 'Continental & Italian', name: 'Classic Pepperoni & Mushroom Pizza (12")', description: 'Hand-tossed dough with San Marzano tomato sauce, beef pepperoni, fresh button mushrooms, and mozzarella.', price: 920, active: true },
+  { id: 'mi-20', categoryId: 'cat-3', categoryName: 'Continental & Italian', name: 'Penne Arrabbiata with Garlic Bread', description: 'Al dente penne in spicy tomato-garlic sauce with black olives and extra virgin olive oil.', price: 520, active: true },
+  { id: 'mi-21', categoryId: 'cat-3', categoryName: 'Continental & Italian', name: 'Pan-Seared Sea Bass with Lemon Caper Butter', description: 'Delicate white sea bass fillet served with roasted baby potatoes and sautéed baby beans.', price: 1100, active: true },
 
-  { id: 'mi-10', categoryId: 'cat-5', categoryName: 'Beverages & Fresh Juices', name: 'Fresh Mint Lemonade', description: 'Freshly squeezed lemon, organic garden mint, rock salt, and crushed ice.', price: 180, active: true },
-  { id: 'mi-11', categoryId: 'cat-5', categoryName: 'Beverages & Fresh Juices', name: 'Royal Saffron Borhani (Glass)', description: 'Traditional yogurt drink spiced with mustard seeds, mint, roasted cumin, and black salt.', price: 150, active: true },
-  { id: 'mi-12', categoryId: 'cat-6', categoryName: 'Desserts & Sweet Delights', name: 'Matka Kulfi with Pistachio & Saffron', description: 'Slow cooked condensed milk kulfi infused with Kashmiri saffron in traditional clay pot.', price: 220, active: true }
+  // 4. Oriental & Pan-Asian
+  { id: 'mi-22', categoryId: 'cat-4', categoryName: 'Oriental & Pan-Asian', name: 'Authentic Thai Tom Yum Goong Soup', description: 'Spicy and sour Thai broth with jumbo prawns, lemongrass, galangal, kaffir lime, and straw mushrooms.', price: 460, active: true },
+  { id: 'mi-23', categoryId: 'cat-4', categoryName: 'Oriental & Pan-Asian', name: 'Chicken Pad Thai Rice Noodles', description: 'Wok-tossed flat rice noodles with egg, chicken, bean sprouts, crushed peanuts, and tamarind glaze.', price: 520, active: true },
+  { id: 'mi-24', categoryId: 'cat-4', categoryName: 'Oriental & Pan-Asian', name: 'Szechuan Crispy Chili Beef', description: 'Shredded crispy beef strips tossed in fiery Szechuan red chili oil with bell peppers and spring onions.', price: 680, active: true },
+  { id: 'mi-25', categoryId: 'cat-4', categoryName: 'Oriental & Pan-Asian', name: 'Dim Sum Steamed Dumpling Basket (6 Pcs)', description: 'Handcrafted chicken and prawn dim sums served with house chili oil and ginger soya dip.', price: 480, active: true },
+  { id: 'mi-26', categoryId: 'cat-4', categoryName: 'Oriental & Pan-Asian', name: 'Kung Pao Chicken with Roasted Cashews', description: 'Wok-seared diced chicken with dry red chillies, scallions, and toasted cashews in savory glaze.', price: 560, active: true },
+
+  // 5. Appetizers, Soups & Salads
+  { id: 'mi-27', categoryId: 'cat-7', categoryName: 'Appetizers, Soups & Salads', name: 'Crispy Calamari Rings with Garlic Aioli', description: 'Golden breaded squid rings seasoned with sea salt and cracked pepper, served with garlic herb aioli.', price: 490, active: true },
+  { id: 'mi-28', categoryId: 'cat-7', categoryName: 'Appetizers, Soups & Salads', name: 'Cream of Wild Forest Mushroom Soup', description: 'Velvety puréed button and shiitake mushroom soup infused with truffle oil, served with croutons.', price: 380, active: true },
+  { id: 'mi-29', categoryId: 'cat-7', categoryName: 'Appetizers, Soups & Salads', name: 'Caesar Salad with Grilled Chicken Breast', description: 'Crisp romaine lettuce, herb croutons, shaved parmesan, grilled chicken, and classic anchovy-parmesan dressing.', price: 440, active: true },
+  { id: 'mi-30', categoryId: 'cat-7', categoryName: 'Appetizers, Soups & Salads', name: 'Spicy Buffalo Chicken Wings (6 Pcs)', description: 'Crispy fried chicken wings tossed in tangy cayenne pepper glaze, served with blue cheese dip and celery sticks.', price: 460, active: true },
+
+  // 6. Breakfast & All-Day Dining
+  { id: 'mi-31', categoryId: 'cat-8', categoryName: 'Breakfast & All-Day Dining', name: 'CCULB Royal English Breakfast Platter', description: 'Two farm eggs cooked to order, chicken sausages, beef bacon, baked beans, grilled tomato, hash browns, and toasted bread.', price: 550, active: true },
+  { id: 'mi-32', categoryId: 'cat-8', categoryName: 'Breakfast & All-Day Dining', name: 'Traditional Paratha, Bhaji & Masala Omelette', description: 'Two layered ghee parathas served with vegetable bhaji, spiced onion-chili omelette, and mango pickle.', price: 280, active: true },
+  { id: 'mi-33', categoryId: 'cat-8', categoryName: 'Breakfast & All-Day Dining', name: 'Resort Club Sandwich with French Fries', description: 'Triple-decker toasted white sandwich layered with smoked chicken, cheddar, fried egg, lettuce, and tomatoes.', price: 450, active: true },
+  { id: 'mi-34', categoryId: 'cat-8', categoryName: 'Breakfast & All-Day Dining', name: 'Gourmet Angus Beef Burger with Fries', description: 'Charcoal grilled beef patty with aged cheddar, caramelized onions, gherkins, and special sauce in brioche bun.', price: 720, active: true },
+
+  // 7. Desserts & Sweet Delights
+  { id: 'mi-12', categoryId: 'cat-6', categoryName: 'Desserts & Sweet Delights', name: 'Matka Kulfi with Pistachio & Saffron', description: 'Slow cooked condensed milk kulfi infused with Kashmiri saffron in traditional clay pot.', price: 220, active: true },
+  { id: 'mi-35', categoryId: 'cat-6', categoryName: 'Desserts & Sweet Delights', name: 'Belgian Molten Dark Chocolate Lava Cake', description: 'Warm molten chocolate cake with gooey lava core, accompanied by a scoop of artisanal vanilla ice cream.', price: 350, active: true },
+  { id: 'mi-36', categoryId: 'cat-6', categoryName: 'Desserts & Sweet Delights', name: 'New York Baked Cheesecake', description: 'Creamy philadelphia cream cheese cake with graham cracker crust, drizzled with wild strawberry coulis.', price: 340, active: true },
+  { id: 'mi-37', categoryId: 'cat-6', categoryName: 'Desserts & Sweet Delights', name: 'Royal Shahi Tukra with Silver Leaf', description: 'Crispy fried bread triangles soaked in saffron cardamom syrup, smothered in thickened rabri and nuts.', price: 220, active: true },
+
+  // 8. Beverages, Mocktails & Juices
+  { id: 'mi-10', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Fresh Mint Lemonade', description: 'Freshly squeezed lemon, organic garden mint, rock salt, and crushed ice.', price: 180, active: true },
+  { id: 'mi-11', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Royal Saffron Borhani (Glass)', description: 'Traditional yogurt drink spiced with mustard seeds, mint, roasted cumin, and black salt.', price: 150, active: true },
+  { id: 'mi-38', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Tropical Blue Lagoon Mocktail', description: 'Refreshing sparkling cooler with blue curaçao, fresh lime juice, sprite, and mint leaves.', price: 240, active: true },
+  { id: 'mi-39', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Virgin Mojito with Crushed Ice', description: 'Muddled fresh lime wedges, mint sprigs, pure cane sugar syrup, topped with effervescent club soda.', price: 220, active: true },
+  { id: 'mi-40', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Artisan Espresso / Cappuccino Roast', description: 'Freshly ground arabica beans double shot, frothed with silky whole milk and cinnamon dust.', price: 210, active: true },
+  { id: 'mi-41', categoryId: 'cat-5', categoryName: 'Beverages, Mocktails & Juices', name: 'Fresh Green Coconut Water (Daab)', description: 'Naturally chilled sweet electrolyte water directly from freshly sliced organic coconut.', price: 120, active: true }
 ];
 
 export const SEED_GL_ACCOUNTS: GLAccount[] = [
@@ -1746,7 +1785,9 @@ export function getInitialDatabase(): PmsDatabaseState {
       // Ensure we NEVER overwrite user-added empty arrays with demo data!
       if (!Array.isArray(parsed.restaurantOrders)) parsed.restaurantOrders = [];
       if (!Array.isArray(parsed.floors) || parsed.floors.length === 0) parsed.floors = SEED_FLOORS;
-      if (!Array.isArray(parsed.rooms) || parsed.rooms.length === 0) parsed.rooms = SEED_ROOMS;
+      if (!Array.isArray(parsed.rooms) || parsed.rooms.length < 110 || !parsed.rooms.some((r: any) => r.roomNumber === '1001') || !parsed.rooms.some((r: any) => r.roomNumber === '1110')) {
+        parsed.rooms = SEED_ROOMS;
+      }
       if (!Array.isArray(parsed.roomTypes) || parsed.roomTypes.length === 0) parsed.roomTypes = SEED_ROOM_TYPES;
       if (!Array.isArray(parsed.users)) parsed.users = [...SEED_USERS];
       
@@ -1780,8 +1821,8 @@ export function getInitialDatabase(): PmsDatabaseState {
       if (!Array.isArray(parsed.eventClients)) parsed.eventClients = [];
       if (!Array.isArray(parsed.eventBookings)) parsed.eventBookings = [];
       if (!Array.isArray(parsed.packages) || parsed.packages.length === 0) parsed.packages = SEED_PACKAGES;
-      if (!Array.isArray(parsed.menuCategories) || parsed.menuCategories.length === 0) parsed.menuCategories = SEED_MENU_CATEGORIES;
-      if (!Array.isArray(parsed.menuItems) || parsed.menuItems.length === 0) parsed.menuItems = SEED_MENU_ITEMS;
+      if (!Array.isArray(parsed.menuCategories) || parsed.menuCategories.length === 0 || parsed.menuCategories.length < 8) parsed.menuCategories = SEED_MENU_CATEGORIES;
+      if (!Array.isArray(parsed.menuItems) || parsed.menuItems.length === 0 || parsed.menuItems.length < 30) parsed.menuItems = SEED_MENU_ITEMS;
       if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = Array.isArray(parsed.auditTrail) ? parsed.auditTrail : [];
       if (!Array.isArray(parsed.auditTrail)) parsed.auditTrail = parsed.auditLogs;
       if (!Array.isArray(parsed.alerts)) parsed.alerts = [];

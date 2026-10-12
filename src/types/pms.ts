@@ -343,6 +343,8 @@ export interface Room {
   floor: number;
   building?: string;
   wing?: string;
+  rate?: number;
+  baseRate?: number;
   isSmoking?: boolean;
   connectingRoom?: string;
   keyCardCode?: string;

@@ -1,4 +1,4 @@
-import { pool, isPostgresConfigured } from './index.ts';
+import { pool, isPostgresConfigured, markPostgresAuthFailed } from './index.ts';
 
 let isSchemaInitialized = false;
 let schemaInitPromise: Promise<boolean> | null = null;
@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   uid TEXT NOT NULL UNIQUE,
   email TEXT NOT NULL,
   name TEXT,
+  username TEXT,
   role TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -281,6 +282,8 @@ export async function ensureDatabaseSchema(): Promise<boolean> {
       const client = await pool.connect();
       try {
         await client.query(SCHEMA_SQL);
+        // Ensure non-destructive addition of username column if older users table exists
+        await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;').catch(() => {});
         isSchemaInitialized = true;
         console.log('[PostgreSQL] Database schema auto-verified and initialized successfully.');
         return true;
@@ -288,8 +291,10 @@ export async function ensureDatabaseSchema(): Promise<boolean> {
         client.release();
       }
     } catch (err: any) {
-      console.warn('[PostgreSQL] Auto-schema initialization notice (tables may already exist):', err?.message || err);
-      // Mark initialized to avoid repeatedly running failing DDL queries on an already populated database
+      const msg = err?.message || String(err);
+      if (msg.includes('authentication failed') || msg.includes('ECONNREFUSED') || msg.includes('57P01')) {
+        markPostgresAuthFailed();
+      }
       isSchemaInitialized = true;
       return true;
     } finally {

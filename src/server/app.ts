@@ -18,6 +18,19 @@ import {
 } from '../db/syncService.ts';
 import { pool, isPostgresConfigured, setDynamicConnectionString, getDatabaseConnectionString } from '../db/index.ts';
 import { ensureDatabaseSchema } from '../db/schemaInitializer.ts';
+import {
+  generate110RoomsStartingWith1001,
+  SEED_MENU_CATEGORIES,
+  SEED_MENU_ITEMS,
+  SEED_ROOM_TYPES,
+  SEED_FLOORS,
+  SEED_USERS,
+  SEED_HALLS,
+  SEED_PACKAGES,
+  SEED_GL_ACCOUNTS,
+  SEED_CITY_LEDGER_ACCOUNTS,
+  SEED_SUPPLIERS
+} from '../services/mockPmsDatabase.ts';
 
 // Broadcast hook for optional WebSocket or multi-client fan-out (registered by server.ts if running)
 type BroadcastHook = (senderWs: any, payload: any) => void;
@@ -82,13 +95,30 @@ export function createApp(): express.Express {
   app.get(['/api/supabase/config', '/supabase/config'], (req, res) => {
     let url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
     url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-    const key = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
+    const publishableKey = (
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      ''
+    ).trim();
+    const secretKey = (
+      process.env.SUPABASE_SECRET_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      ''
+    ).trim();
+    const key = publishableKey || secretKey;
     const projectRef = url ? url.replace(/^https?:\/\//, '').split('.')[0] : null;
+    const connectionString = getDatabaseConnectionString() || '';
     res.json({
       url,
       key,
-      configured: Boolean(url && key),
+      publishableKey,
+      hasSecretKey: Boolean(secretKey),
+      jwksUrl: process.env.SUPABASE_JWKS_URL || '',
+      configured: Boolean(url && (publishableKey || secretKey)),
       projectRef,
+      connectionString,
     });
   });
 
@@ -106,11 +136,24 @@ export function createApp(): express.Express {
 
     try {
       const pg = await import('pg');
-      const testPool = new pg.default.Pool({
-        connectionString: testCs,
-        ssl: { rejectUnauthorized: false },
-        connectionTimeoutMillis: 10000,
-      });
+      const { parsePostgresUri } = await import('../db/index.ts');
+      const parsed = parsePostgresUri(testCs);
+      const poolOptions = parsed && parsed.host && parsed.user
+        ? {
+            host: parsed.host,
+            port: parsed.port || 5432,
+            user: parsed.user,
+            password: parsed.password || '',
+            database: parsed.database || 'postgres',
+            ssl: parsed.ssl ? { rejectUnauthorized: false } : false,
+            connectionTimeoutMillis: 10000,
+          }
+        : {
+            connectionString: testCs,
+            ssl: { rejectUnauthorized: false },
+            connectionTimeoutMillis: 10000,
+          };
+      const testPool = new pg.default.Pool(poolOptions);
 
       const client = await testPool.connect();
       const versionResult = await client.query('SELECT version(), current_database(), current_user;');
@@ -137,7 +180,25 @@ export function createApp(): express.Express {
   app.post(['/api/supabase/save-config', '/api/cloudsql/save-config'], async (req, res) => {
     const { connectionString } = req.body;
     if (typeof connectionString === 'string' && connectionString.trim().length > 0) {
-      setDynamicConnectionString(connectionString.trim());
+      const cs = connectionString.trim();
+      setDynamicConnectionString(cs);
+      try {
+        const envPath = path.resolve(process.cwd(), '.env');
+        if (fs.existsSync(envPath)) {
+          let envContent = fs.readFileSync(envPath, 'utf8');
+          if (envContent.includes('DATABASE_URL=')) {
+            envContent = envContent.replace(/DATABASE_URL=.*/, `DATABASE_URL=${cs}`);
+          } else {
+            envContent += `\nDATABASE_URL=${cs}`;
+          }
+          if (envContent.includes('POSTGRES_URL=')) {
+            envContent = envContent.replace(/POSTGRES_URL=.*/, `POSTGRES_URL=${cs}`);
+          } else {
+            envContent += `\nPOSTGRES_URL=${cs}`;
+          }
+          fs.writeFileSync(envPath, envContent, 'utf8');
+        }
+      } catch {}
       try {
         await ensureDatabaseSchema();
         return res.json({
@@ -169,39 +230,50 @@ export function createApp(): express.Express {
     res.status(404).json({ success: false, error: 'SQL script not found on server' });
   });
 
-  // 1e. Seed Supabase Database with full demo dataset
-  app.post(['/api/supabase/seed-database', '/supabase/seed-database'], async (req, res) => {
+  // 1e. Seed Supabase Database with full dataset (110 rooms 1001-1110 & Restaurant Menus)
+  app.post(['/api/supabase/seed-database', '/supabase/seed-database', '/api/supabase/import-rooms-menus'], async (req, res) => {
     try {
       let statePayload = req.body;
-      if (!statePayload || typeof statePayload !== 'object' || !statePayload.rooms) {
-        // Fallback: extract full PMS state JSON from supabase_schema_and_seed.sql
-        const sqlPath = path.resolve(process.cwd(), 'supabase_schema_and_seed.sql');
-        if (fs.existsSync(sqlPath)) {
-          const sqlContent = fs.readFileSync(sqlPath, 'utf8');
-          const jsonMatch = sqlContent.match(/'({.*})'::jsonb/s);
-          if (jsonMatch) {
-            try {
-              statePayload = JSON.parse(jsonMatch[1]);
-            } catch (jsonErr) {
-              console.warn('Could not parse SQL snapshot JSON:', jsonErr);
-            }
-          }
-        }
+      const rooms110 = generate110RoomsStartingWith1001();
+      
+      // If client didn't supply rooms or supplied older < 110 rooms, merge canonical 110 rooms & full menus
+      if (!statePayload || typeof statePayload !== 'object' || !Array.isArray(statePayload.rooms) || statePayload.rooms.length < 110) {
+        statePayload = {
+          resortName: 'Heritage Resort & Spa',
+          businessDate: new Date().toISOString().slice(0, 10),
+          users: SEED_USERS,
+          rooms: rooms110,
+          roomTypes: SEED_ROOM_TYPES,
+          floors: SEED_FLOORS,
+          halls: SEED_HALLS,
+          packages: SEED_PACKAGES,
+          menuCategories: SEED_MENU_CATEGORIES,
+          menuItems: SEED_MENU_ITEMS,
+          glAccounts: SEED_GL_ACCOUNTS,
+          cityLedgerAccounts: SEED_CITY_LEDGER_ACCOUNTS,
+          suppliers: SEED_SUPPLIERS,
+          reservations: [],
+          stays: [],
+          folios: [],
+          payments: [],
+          invoices: [],
+          restaurantOrders: [],
+          ...(statePayload && typeof statePayload === 'object' ? statePayload : {}),
+        };
+        // Guarantee 110 rooms starting with 1001
+        statePayload.rooms = rooms110;
+        statePayload.menuCategories = SEED_MENU_CATEGORIES;
+        statePayload.menuItems = SEED_MENU_ITEMS;
       }
 
-      if (statePayload && Array.isArray(statePayload.rooms)) {
-        const syncResult = await syncEntirePmsState(statePayload, 'Supabase Demo Seed');
-        return res.json({
-          success: true,
-          message: `Demo data seeded to Supabase successfully (${syncResult.totalEntities || statePayload.rooms.length} entities across tables)!`,
-          syncResult,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
+      const syncResult = await syncEntirePmsState(statePayload, 'Supabase Room & Menu Seed');
       return res.json({
         success: true,
-        message: 'Supabase demo state verified and synchronized.',
+        message: `Successfully imported 110 rooms (1001 to 1110) and ${SEED_MENU_ITEMS.length} restaurant menus into Supabase PostgreSQL!`,
+        totalRooms: statePayload.rooms.length,
+        totalMenuItems: statePayload.menuItems?.length || 0,
+        syncResult,
+        timestamp: new Date().toISOString(),
       });
     } catch (err: any) {
       console.error('Error seeding database:', err?.message || err);
