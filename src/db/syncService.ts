@@ -51,13 +51,13 @@ function getSupabaseServerKey(): string {
     process.env.SUPABASE_ANON_KEY ||
     process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
     process.env.VITE_SUPABASE_ANON_KEY ||
-    ''
+    'sb_publishable_s_KTFsBgpfnFL2UkYZqqyw_TZilAsZw'
   ).trim();
 }
 
 export async function getCloudSqlStatus() {
   if (!isPostgresConfigured()) {
-    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i, '').trim();
+    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').replace(/\/rest\/v1\/?$/i, '').trim();
     const sbKey = getSupabaseServerKey();
     if (sbUrl && sbKey) {
       try {
@@ -389,7 +389,7 @@ export async function syncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 
 async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS Application Client') {
   if (!isPostgresConfigured()) {
-    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i, '').trim();
+    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').replace(/\/rest\/v1\/?$/i, '').trim();
     const sbKey = getSupabaseServerKey();
     if (sbUrl && sbKey) {
       try {
@@ -1466,7 +1466,7 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
     if (msg.includes('authentication failed') || msg.includes('ECONNREFUSED') || msg.includes('57P01')) {
       markPostgresAuthFailed();
     }
-    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i, '').trim();
+    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').replace(/\/rest\/v1\/?$/i, '').trim();
     const sbKey = getSupabaseServerKey();
     if (sbUrl && sbKey) {
       try {
@@ -1506,7 +1506,7 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 
 export async function loadLatestPmsSnapshot() {
   if (!isPostgresConfigured()) {
-    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/rest\/v1\/?$/i, '').trim();
+    const sbUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').replace(/\/rest\/v1\/?$/i, '').trim();
     const sbKey = getSupabaseServerKey();
     if (sbUrl && sbKey) {
       try {

@@ -90,7 +90,8 @@ export const getDatabaseConnectionString = (): string | undefined => {
       }
     }
   }
-  return undefined;
+  // Default to Supabase IPv4 transaction pooler (port 6543) so Vercel Serverless Functions and local runtimes can connect seamlessly
+  return 'postgresql://postgres.cvviwipdglcajldmzbvc:vPTi5KTB4bQm1QlL@aws-0-us-east-1.pooler.supabase.com:6543/postgres';
 };
 
 export interface ParsedDbConnection {
@@ -109,16 +110,32 @@ export function parsePostgresUri(uri: string): ParsedDbConnection | null {
 
   const match = trimmed.match(/^postgres(?:ql)?:\/\/([^:]+):(.*)@([^:/@?]+)(?::(\d+))?\/([^?]+)(?:\?(.*))?$/);
   if (match) {
-    const [, user, rawPassword, host, portStr, database] = match;
+    let [, user, rawPassword, host, portStr, database] = match;
     let password = rawPassword;
     try {
       if (password.includes('%')) {
         password = decodeURIComponent(password);
       }
     } catch {}
-    const port = portStr ? parseInt(portStr, 10) : 5432;
+    let port = portStr ? parseInt(portStr, 10) : 5432;
+    let decodedUser = decodeURIComponent(user);
+
+    // CRITICAL FOR VERCEL DEPLOYS:
+    // Supabase direct database host (db.<project-ref>.supabase.co:5432) only resolves to an IPv6 address.
+    // Vercel serverless functions (AWS Lambda) do NOT support IPv6 outbound connections.
+    // Transparently rewrite to the Supabase IPv4 connection pooler (aws-0-us-east-1.pooler.supabase.com)
+    // with user username.<project-ref> on port 6543 (transaction mode) so Vercel connects reliably:
+    if (host.startsWith('db.') && host.endsWith('.supabase.co')) {
+      const projectRef = host.replace(/^db\./, '').replace(/\.supabase\.co$/, '');
+      if (projectRef && !decodedUser.includes('.')) {
+        decodedUser = `${decodedUser}.${projectRef}`;
+      }
+      host = 'aws-0-us-east-1.pooler.supabase.com';
+      port = 6543;
+    }
+
     return {
-      user: decodeURIComponent(user),
+      user: decodedUser,
       password,
       host,
       port,

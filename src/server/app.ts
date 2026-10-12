@@ -75,6 +75,14 @@ export function createApp(): express.Express {
     next();
   });
 
+  // Support pre-parsed body in serverless runtimes (e.g. Vercel)
+  app.use((req, res, next) => {
+    if (req.body && typeof req.body === 'object') {
+      (req as any)._body = true;
+    }
+    next();
+  });
+
   // JSON Body Parser with adequate limit for full PMS state payloads
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -93,14 +101,14 @@ export function createApp(): express.Express {
 
   // 1a. Supabase Client Configuration (URL & Anon Key)
   app.get(['/api/supabase/config', '/supabase/config'], (req, res) => {
-    let url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+    let url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').trim();
     url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
     const publishableKey = (
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
       process.env.SUPABASE_ANON_KEY ||
       process.env.VITE_SUPABASE_ANON_KEY ||
-      ''
+      'sb_publishable_s_KTFsBgpfnFL2UkYZqqyw_TZilAsZw'
     ).trim();
     const secretKey = (
       process.env.SUPABASE_SECRET_KEY ||
@@ -108,7 +116,7 @@ export function createApp(): express.Express {
       ''
     ).trim();
     const key = publishableKey || secretKey;
-    const projectRef = url ? url.replace(/^https?:\/\//, '').split('.')[0] : null;
+    const projectRef = url ? url.replace(/^https?:\/\//, '').split('.')[0] : 'cvviwipdglcajldmzbvc';
     const connectionString = getDatabaseConnectionString() || '';
     res.json({
       url,

@@ -4,6 +4,9 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL_KEY = 'pms_supabase_url';
 const SUPABASE_KEY_KEY = 'pms_supabase_key';
 
+export const DEFAULT_SUPABASE_URL = 'https://cvviwipdglcajldmzbvc.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_s_KTFsBgpfnFL2UkYZqqyw_TZilAsZw';
+
 export interface SupabaseConfig {
   url: string;
   key: string;
@@ -32,7 +35,7 @@ export function getSupabaseConfig(): SupabaseConfig {
     (import.meta as any).env?.SUPABASE_URL ||
     (import.meta as any).env?.VITE_SUPABASE_URL ||
     _serverFetchedUrl ||
-    '';
+    DEFAULT_SUPABASE_URL;
   const envKey =
     (import.meta as any).env?.SUPABASE_SECRET_KEY ||
     (import.meta as any).env?.SUPABASE_SERVICE_ROLE_KEY ||
@@ -42,14 +45,14 @@ export function getSupabaseConfig(): SupabaseConfig {
     (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_KEY ||
     _serverFetchedKey ||
-    '';
+    DEFAULT_SUPABASE_ANON_KEY;
 
   const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(SUPABASE_URL_KEY) || '' : '';
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem(SUPABASE_KEY_KEY) || '' : '';
 
-  let url = (storedUrl.trim() || envUrl.trim());
+  let url = (storedUrl.trim() || envUrl.trim() || DEFAULT_SUPABASE_URL);
   url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-  const key = storedKey.trim() || envKey.trim();
+  const key = storedKey.trim() || envKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
 
   return {
     url,

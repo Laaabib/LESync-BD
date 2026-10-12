@@ -1,6 +1,20 @@
 import defaultApp from '../src/server/app.ts';
 
 export default function handler(req: any, res: any) {
+  // If Vercel pre-parsed or consumed the body, ensure req._body is set so Express body-parser does not hang
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch {}
+    } else if (typeof Buffer !== 'undefined' && Buffer.isBuffer(req.body)) {
+      try {
+        req.body = JSON.parse(req.body.toString('utf8'));
+      } catch {}
+    }
+    req._body = true;
+  }
+
   // Restore real path when Vercel rewrites /api/(.*) -> /api?path=$1
   const queryPath = req.query?.path || req.query?.__path;
   if (queryPath) {
