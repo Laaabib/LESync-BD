@@ -11,7 +11,7 @@ import {
   Store, Wine, Briefcase, HeartHandshake, UserCheck, Shield,
   Tag, Percent, Gift, Ban, CheckCircle2, Sliders, AlertTriangle, Zap,
   Database, History, Rocket, PanelLeftOpen, PanelLeftClose, ChevronsRight, ChevronsLeft,
-  Fingerprint, Terminal
+  Fingerprint, Terminal, AlertOctagon
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
@@ -364,7 +364,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'settings', label: 'System Settings', icon: Settings },
         { id: 'admin-backup', label: 'Supabase Cloud Database', icon: Database },
         { id: 'admin-sql-console', label: 'Supabase SQL Console', icon: Terminal },
-        { id: 'admin-audit', label: 'User Activity Logs', icon: History }
+        { id: 'admin-audit', label: 'User Activity Logs', icon: History },
+        { id: 'admin-error-finder', label: 'User Error Finder & Diagnostics', icon: AlertOctagon }
       ]
     }
   ];

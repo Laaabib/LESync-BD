@@ -866,7 +866,7 @@ export default function App() {
               />
             )}
 
-            {/* Admin Users, Roles, Permissions & User Activity Logs */}
+            {/* Admin Users, Roles, Permissions, User Activity Logs & Error Finder */}
             {(activeRoute === 'admin-users' ||
               activeRoute === 'admin-roles' ||
               activeRoute === 'admin-permissions' ||
@@ -875,7 +875,12 @@ export default function App() {
               activeRoute === 'admin-approvals' ||
               activeRoute === 'admin-audit' ||
               activeRoute === 'admin-activity-logs' ||
-              activeRoute === 'activity-logs') && (
+              activeRoute === 'activity-logs' ||
+              activeRoute === 'admin-error-finder' ||
+              activeRoute === 'error-finder' ||
+              activeRoute === 'admin-errors' ||
+              activeRoute === 'errors' ||
+              activeRoute === 'user-error-finder') && (
               <AdminUsersView
                 initialTab={activeRoute}
                 onNavigate={(route) => setActiveRoute(route)}
