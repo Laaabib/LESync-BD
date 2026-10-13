@@ -265,6 +265,13 @@ CREATE INDEX IF NOT EXISTS idx_pms_reservations_status ON pms_reservations(statu
 CREATE INDEX IF NOT EXISTS idx_pms_reservations_checkin ON pms_reservations(check_in_date);
 CREATE INDEX IF NOT EXISTS idx_pms_stays_status ON pms_stays(status);
 CREATE INDEX IF NOT EXISTS idx_pms_folios_status ON pms_folios(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_jv_voucher_num ON pms_journal_vouchers(voucher_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_invoices_inv_num ON pms_invoices(invoice_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_city_ledger_acc_code ON pms_city_ledger_accounts(account_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_suppliers_code ON pms_suppliers(supplier_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_purchase_bills_num ON pms_purchase_bills(bill_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_supplier_payments_num ON pms_supplier_payments(payment_number);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_restaurant_orders_num ON pms_restaurant_orders(order_number);
 `;
 
 export async function ensureDatabaseSchema(): Promise<boolean> {
@@ -284,6 +291,9 @@ export async function ensureDatabaseSchema(): Promise<boolean> {
         await client.query(SCHEMA_SQL);
         // Ensure non-destructive addition of username column if older users table exists
         await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;').catch(() => {});
+        // Ensure unique index on voucher_number for journal vouchers and invoice_number for invoices
+        await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_jv_voucher_num ON pms_journal_vouchers(voucher_number);').catch(() => {});
+        await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pms_invoices_inv_num ON pms_invoices(invoice_number);').catch(() => {});
         isSchemaInitialized = true;
         console.log('[PostgreSQL] Database schema auto-verified and initialized successfully.');
         return true;

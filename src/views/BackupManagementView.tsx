@@ -9,7 +9,13 @@ import { pmsService } from '../services/pmsService';
 import { rbacService } from '../services/rbacService';
 import { cloudSqlSyncService, CloudSqlSyncStatus, SyncHistoryItem } from '../services/cloudSqlSyncService';
 import { CloudSqlConsole } from '../components/admin/CloudSqlConsole';
-import { getSupabaseConfig, saveSupabaseConfig, testSupabaseClientConnection } from '../services/supabaseService';
+import {
+  getSupabaseConfig,
+  saveSupabaseConfig,
+  testSupabaseClientConnection,
+  isSecretApiKey,
+  DEFAULT_SUPABASE_ANON_KEY
+} from '../services/supabaseService';
 
 interface BackupManagementViewProps {
   initialTab?: 'supabase' | 'sql-console';
@@ -95,6 +101,9 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
       const cs = connStringInput.trim();
 
       if (url && key) {
+        if (isSecretApiKey(key)) {
+          notifyUser('info', 'Notice: Secret/Service Role key entered. Supabase requires Publishable Anon keys in browsers ("Forbidden use of secret API key in browser"). Client will use safe Publishable key while server functions utilize your connection.');
+        }
         saveSupabaseConfig(url, key);
         const testRes = await testSupabaseClientConnection(url, key);
         if (!testRes.success) {
@@ -123,11 +132,22 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
   };
 
   const handleCopyVercelEnvSnippet = async () => {
+    const isSecret = isSecretApiKey(supabaseKeyInput);
+    const anonKey = isSecret ? DEFAULT_SUPABASE_ANON_KEY : (supabaseKeyInput || DEFAULT_SUPABASE_ANON_KEY);
+    const secretSnippet = isSecret
+      ? `\n# Supabase Server Secret Key (Server-Side ONLY - Never use VITE_ prefix)\nSUPABASE_SECRET_KEY=${supabaseKeyInput}`
+      : '';
+
     const snippet = `# Supabase Cloud Credentials for Vercel
 POSTGRES_URL=${connStringInput || 'postgresql://postgres.[project-ref]:[db-password]@aws-0-[region].pooler.supabase.com:6543/postgres'}
 DATABASE_URL=${connStringInput || 'postgresql://postgres.[project-ref]:[db-password]@aws-0-[region].pooler.supabase.com:6543/postgres'}
-VITE_SUPABASE_URL=${supabaseUrlInput || 'https://your-project.supabase.co'}
-VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
+
+# Client-Side Supabase (Browser Safe - Must use Publishable/Anon key, NOT Secret key)
+VITE_SUPABASE_URL=${supabaseUrlInput || 'https://cvviwipdglcajldmzbvc.supabase.co'}
+VITE_SUPABASE_ANON_KEY=${anonKey}
+SUPABASE_URL=${supabaseUrlInput || 'https://cvviwipdglcajldmzbvc.supabase.co'}
+SUPABASE_ANON_KEY=${anonKey}${secretSnippet}`;
+
     await navigator.clipboard.writeText(snippet);
     setCopiedVercelEnv(true);
     notifyUser('success', 'Vercel Environment Variables snippet copied to clipboard! Paste in Vercel Project Settings > Environment Variables.');
@@ -362,9 +382,20 @@ VITE_SUPABASE_ANON_KEY=${supabaseKeyInput || 'eyJhbGciOi...'}`;
                     type={showApiKey ? 'text' : 'password'}
                     value={supabaseKeyInput}
                     onChange={(e) => setSupabaseKeyInput(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+                    placeholder="sb_publishable_s_... or eyJhbGci..."
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
                   />
+                  {isSecretApiKey(supabaseKeyInput) && (
+                    <div className="mt-1.5 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[11px] text-amber-300 flex items-start space-x-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-semibold">Supabase Secret Key Detected</span>
+                        <p className="text-[10px] text-amber-200/90 mt-0.5 leading-normal">
+                          Supabase blocks secret/service_role keys in browser clients (&ldquo;Forbidden use of secret API key in browser&rdquo;). For browser connections, use your <strong>Publishable Anon Key</strong> (starts with <code className="bg-amber-950/60 px-1 py-0.5 rounded">sb_publishable_</code> or <code className="bg-amber-950/60 px-1 py-0.5 rounded">eyJ...</code>). Your secret key will be safely used on the server via <code className="bg-amber-950/60 px-1 py-0.5 rounded">SUPABASE_SECRET_KEY</code>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div>

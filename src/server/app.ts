@@ -112,7 +112,22 @@ export function createApp(): express.Express {
     });
   });
 
-  // 1a. Supabase Client Configuration (URL & Anon Key)
+  // Helper to detect secret / service_role keys that must never be sent to the browser
+  function isSecretKeyString(key: string): boolean {
+    if (!key) return false;
+    const k = key.trim();
+    if (k.startsWith('sb_secret_') || k.startsWith('secret_')) return true;
+    try {
+      const parts = k.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        if (payload?.role === 'service_role') return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  // 1a. Supabase Client Configuration (URL & Anon Key - Safe for Browser)
   app.get(['/api/supabase/config', '/supabase/config'], (req, res) => {
     let url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://cvviwipdglcajldmzbvc.supabase.co').trim();
     url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
@@ -128,16 +143,32 @@ export function createApp(): express.Express {
       process.env.SUPABASE_SERVICE_ROLE_KEY ||
       ''
     ).trim();
-    const key = publishableKey || secretKey;
+
+    // CRITICAL SECURITY & COMPLIANCE:
+    // Supabase returns "Forbidden use of secret API key in browser" if a secret or service_role key is sent to the client.
+    // The key returned here MUST ALWAYS be a safe Publishable / Anon key, never a secret key.
+    let safeBrowserKey = publishableKey;
+    if (!safeBrowserKey || isSecretKeyString(safeBrowserKey)) {
+      safeBrowserKey = (
+        process.env.VITE_SUPABASE_ANON_KEY ||
+        process.env.SUPABASE_ANON_KEY ||
+        'sb_publishable_s_KTFsBgpfnFL2UkYZqqyw_TZilAsZw'
+      ).trim();
+      if (isSecretKeyString(safeBrowserKey)) {
+        safeBrowserKey = 'sb_publishable_s_KTFsBgpfnFL2UkYZqqyw_TZilAsZw';
+      }
+    }
+
     const projectRef = url ? url.replace(/^https?:\/\//, '').split('.')[0] : 'cvviwipdglcajldmzbvc';
     const connectionString = getDatabaseConnectionString() || '';
     res.json({
       url,
-      key,
-      publishableKey,
+      key: safeBrowserKey, // Always a browser-safe publishable/anon key
+      publishableKey: safeBrowserKey,
       hasSecretKey: Boolean(secretKey),
+      isSafeForBrowser: true,
       jwksUrl: process.env.SUPABASE_JWKS_URL || '',
-      configured: Boolean(url && (publishableKey || secretKey)),
+      configured: Boolean(url && safeBrowserKey),
       projectRef,
       connectionString,
     });

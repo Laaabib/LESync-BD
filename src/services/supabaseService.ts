@@ -30,19 +30,47 @@ if (typeof window !== 'undefined') {
     .catch(() => {});
 }
 
+/**
+ * Helper to identify Supabase Secret / Service Role keys.
+ * Secret keys start with 'sb_secret_' or are JWTs with role 'service_role'.
+ * They are strictly forbidden by Supabase in client-side browser runtimes.
+ */
+export function isSecretApiKey(key: string): boolean {
+  if (!key) return false;
+  const k = key.trim();
+  if (k.startsWith('sb_secret_') || k.startsWith('secret_')) return true;
+  try {
+    const parts = k.split('.');
+    if (parts.length === 3) {
+      // Decode JWT payload
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const json = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      const payload = JSON.parse(json);
+      if (payload?.role === 'service_role') return true;
+    }
+  } catch {}
+  return false;
+}
+
 export function getSupabaseConfig(): SupabaseConfig {
   const envUrl =
     (import.meta as any).env?.SUPABASE_URL ||
     (import.meta as any).env?.VITE_SUPABASE_URL ||
     _serverFetchedUrl ||
     DEFAULT_SUPABASE_URL;
+
+  // IMPORTANT: In browser code, only read publishable / anon public keys.
+  // Never read SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY into the browser client!
   const envKey =
-    (import.meta as any).env?.SUPABASE_SECRET_KEY ||
-    (import.meta as any).env?.SUPABASE_SERVICE_ROLE_KEY ||
-    (import.meta as any).env?.SUPABASE_PUBLISHABLE_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    (import.meta as any).env?.SUPABASE_ANON_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+    (import.meta as any).env?.SUPABASE_PUBLISHABLE_KEY ||
+    (import.meta as any).env?.SUPABASE_ANON_KEY ||
     (import.meta as any).env?.VITE_SUPABASE_KEY ||
     _serverFetchedKey ||
     DEFAULT_SUPABASE_ANON_KEY;
@@ -52,7 +80,16 @@ export function getSupabaseConfig(): SupabaseConfig {
 
   let url = (storedUrl.trim() || envUrl.trim() || DEFAULT_SUPABASE_URL);
   url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
-  const key = storedKey.trim() || envKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
+
+  // Guard against forbidden use of secret API key in browser
+  const rawKey = storedKey.trim() || envKey.trim() || DEFAULT_SUPABASE_ANON_KEY;
+  let key = rawKey;
+  if (isSecretApiKey(rawKey)) {
+    console.warn(
+      '[Supabase Browser Security] Secret / Service Role key detected in browser context. Supabase forbids secret keys in client-side browser code. Automatically substituting with public Publishable Anon key.'
+    );
+    key = DEFAULT_SUPABASE_ANON_KEY;
+  }
 
   return {
     url,
@@ -66,8 +103,16 @@ export function saveSupabaseConfig(url: string, key: string): void {
     if (url) localStorage.setItem(SUPABASE_URL_KEY, url.trim());
     else localStorage.removeItem(SUPABASE_URL_KEY);
 
-    if (key) localStorage.setItem(SUPABASE_KEY_KEY, key.trim());
-    else localStorage.removeItem(SUPABASE_KEY_KEY);
+    if (key) {
+      if (isSecretApiKey(key)) {
+        // User pasted a secret key into the browser settings; store safe anon key for browser client
+        localStorage.setItem(SUPABASE_KEY_KEY, DEFAULT_SUPABASE_ANON_KEY);
+      } else {
+        localStorage.setItem(SUPABASE_KEY_KEY, key.trim());
+      }
+    } else {
+      localStorage.removeItem(SUPABASE_KEY_KEY);
+    }
   }
 }
 
@@ -79,22 +124,36 @@ export function getSupabaseClient(): SupabaseClient | null {
   const config = getSupabaseConfig();
   if (!config.isConfigured) return null;
 
-  if (_supabaseClientInstance && _cachedUrl === config.url && _cachedKey === config.key) {
+  // Extra safety: ensure client key is never a secret key in browser
+  const safeKey = isSecretApiKey(config.key) ? DEFAULT_SUPABASE_ANON_KEY : config.key;
+
+  if (_supabaseClientInstance && _cachedUrl === config.url && _cachedKey === safeKey) {
     return _supabaseClientInstance;
   }
 
   try {
-    _supabaseClientInstance = createClient(config.url, config.key, {
+    _supabaseClientInstance = createClient(config.url, safeKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
       },
     });
     _cachedUrl = config.url;
-    _cachedKey = config.key;
+    _cachedKey = safeKey;
     return _supabaseClientInstance;
-  } catch (err) {
-    console.error('Failed to initialize Supabase client:', err);
+  } catch (err: any) {
+    console.warn('Failed to initialize Supabase client:', err?.message || err);
+    // If failed due to "Forbidden use of secret API key in browser" or invalid key, retry with default anon key
+    if (safeKey !== DEFAULT_SUPABASE_ANON_KEY) {
+      try {
+        _supabaseClientInstance = createClient(config.url, DEFAULT_SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true },
+        });
+        _cachedUrl = config.url;
+        _cachedKey = DEFAULT_SUPABASE_ANON_KEY;
+        return _supabaseClientInstance;
+      } catch {}
+    }
     return null;
   }
 }
@@ -104,12 +163,20 @@ export function getSupabaseClient(): SupabaseClient | null {
  */
 export async function testSupabaseClientConnection(url?: string, key?: string): Promise<{ success: boolean; message: string; details?: any }> {
   const targetUrl = url || getSupabaseConfig().url;
-  const targetKey = key || getSupabaseConfig().key;
+  let targetKey = key || getSupabaseConfig().key;
 
   if (!targetUrl || !targetKey) {
     return {
       success: false,
       message: 'Supabase URL and API Key are required.',
+    };
+  }
+
+  // Friendly browser guard: if user passes a secret key, explain immediately
+  if (isSecretApiKey(targetKey)) {
+    return {
+      success: false,
+      message: 'Forbidden use of secret API key in browser: The key you entered is a Supabase Secret / Service Role Key. Supabase strictly blocks secret keys in browsers to protect your database. Please use your Publishable Anon Key (starts with "sb_publishable_" or "eyJhbGci...") for browser client connections.',
     };
   }
 
@@ -129,17 +196,30 @@ export async function testSupabaseClientConnection(url?: string, key?: string): 
         message: 'Successfully connected to Supabase REST and Auth engine.',
       };
     } else {
-      // Fallback: try checking if the URL responds
+      const text = await response.text().catch(() => '');
+      if (text.includes('Forbidden use of secret API key') || response.status === 401) {
+        return {
+          success: false,
+          message: 'Forbidden use of secret API key in browser: Supabase blocked this key because it is a secret/service_role key. Please use your Publishable Anon Key (starts with "sb_publishable_...") in the browser.',
+        };
+      }
       const statusText = response.statusText || `HTTP ${response.status}`;
       return {
         success: false,
-        message: `Supabase server responded with error: ${statusText}`,
+        message: `Supabase server responded with error: ${statusText} ${text ? `(${text})` : ''}`,
       };
     }
   } catch (error: any) {
+    const errMsg = error?.message || 'Network error connecting to Supabase';
+    if (errMsg.includes('Forbidden use of secret API key')) {
+      return {
+        success: false,
+        message: 'Forbidden use of secret API key in browser: Supabase blocked this key. Please use your Publishable Anon Key (starts with "sb_publishable_...") in the browser.',
+      };
+    }
     return {
       success: false,
-      message: error?.message || 'Network error connecting to Supabase',
+      message: errMsg,
     };
   }
 }
