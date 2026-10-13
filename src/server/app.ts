@@ -50,6 +50,17 @@ export function registerDeviceListHandler(handler: DeviceListHook) {
 export function createApp(): express.Express {
   const app = express();
 
+  // CORS support for Vercel and cross-origin clients
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, X-Client-Info');
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    next();
+  });
+
   // Normalize URL prefix for backend endpoints:
   // In Vercel serverless functions, rewrites can deliver paths like /api?path=supabase/status or /supabase/status.
   // Only normalize known backend route roots, never touching Vite assets (/src, /@vite, /node_modules, etc.).
@@ -59,6 +70,8 @@ export function createApp(): express.Express {
     if (qPath) {
       const cleanPath = Array.isArray(qPath) ? qPath.join('/') : String(qPath);
       req.url = cleanPath.startsWith('/') ? '/api' + cleanPath : '/api/' + cleanPath;
+      delete (req.query as any).path;
+      delete (req.query as any).__path;
     } else {
       const rawUrl = req.url || '';
       if (

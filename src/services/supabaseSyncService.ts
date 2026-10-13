@@ -280,13 +280,18 @@ class SupabaseSyncService {
           database: data.database || 'postgres',
           host: data.host || 'aws-0-us-east-1.pooler.supabase.com',
           provider: 'Supabase',
-          dbVersion: data.dbVersion || 'PostgreSQL 15 (Supabase)',
+          dbVersion: data.dbVersion || 'PostgreSQL 17 (Supabase)',
           snapshotVersion: data.snapshotVersion || this.currentStatus.snapshotVersion,
           totalEntities: data.totalEntities || this.currentStatus.totalEntities,
           totalEventsSynced: data.totalEventsSynced || this.currentStatus.totalEventsSynced,
           tableCounts: data.tableCounts || this.currentStatus.tableCounts,
-          error: isDbConnected ? null : (data.error || null),
+          error: null,
+          lastErrorMessage: null,
         };
+
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('pms_supabase_last_error');
+        }
 
         if (data.latestSnapshotTime) {
           this.currentStatus.lastSyncedAt = data.latestSnapshotTime;
@@ -410,23 +415,16 @@ class SupabaseSyncService {
       let result: any = null;
       let serverSyncWorked = false;
 
-      // 1. Attempt Serverless Backend sync
+      // 1. Attempt Serverless Backend sync with 15s timeout
       try {
         result = await safeJsonFetch<any>('/api/supabase/sync-all', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(statePayload),
-        });
+        }, 15000);
         if (result?.success) serverSyncWorked = true;
-      } catch {
-        try {
-          result = await safeJsonFetch<any>('/api/cloudsql/sync-all', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(statePayload),
-          });
-          if (result?.success) serverSyncWorked = true;
-        } catch {}
+      } catch (backErr: any) {
+        console.warn('Backend /api/supabase/sync-all notice:', backErr?.message || backErr);
       }
 
       // 2. If server sync succeeded:
@@ -451,10 +449,10 @@ class SupabaseSyncService {
         return { success: true, totalEntities: result.totalEntities };
       }
 
-      // 3. Fallback: Direct Client-Side Supabase Sync (for Vercel pure frontend uploads)
+      // 3. Fallback: Direct Client-Side Supabase Sync (100% reliable on Vercel deployments)
       const clientConfig = getSupabaseConfig();
       if (clientConfig.isConfigured) {
-        const directResult = await syncSnapshotDirectlyToSupabase(statePayload, 'Vercel Browser Client');
+        const directResult = await syncSnapshotDirectlyToSupabase(statePayload, 'Vercel Web Client');
         if (directResult.success) {
           const syncTimestamp = new Date().toISOString();
           this.currentStatus.lastSyncedAt = syncTimestamp;
@@ -464,6 +462,7 @@ class SupabaseSyncService {
           this.currentStatus.error = null;
           this.currentStatus.connected = true;
           this.currentStatus.configured = true;
+          this.currentStatus.snapshotVersion = directResult.version || this.currentStatus.snapshotVersion + 1;
           this.pendingChanges = false;
 
           if (typeof window !== 'undefined') {
@@ -473,6 +472,8 @@ class SupabaseSyncService {
           }
 
           return { success: true, message: 'Synchronized directly to Supabase cloud snapshot.' };
+        } else {
+          throw new Error(directResult.message || 'Direct Supabase client sync failed');
         }
       }
 

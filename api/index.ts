@@ -24,6 +24,8 @@ export default function handler(req: any, res: any) {
     if (rawQuery) {
       req.url += rawQuery;
     }
+    delete req.query.path;
+    delete req.query.__path;
   } else if (req.headers && (req.headers['x-matched-path'] || req.headers['x-invoke-path'])) {
     const matched = req.headers['x-matched-path'] || req.headers['x-invoke-path'];
     if (matched && typeof matched === 'string' && matched.startsWith('/api')) {

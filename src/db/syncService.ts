@@ -518,34 +518,36 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
         },
       });
 
-    // 0. Sync Users with deduplication & atomic upsert
+    // 0. Sync Users with deduplication & batch upsert
     if (Array.isArray(fullState.users) && fullState.users.length > 0) {
       try {
         const uniqueUsers = deduplicate(fullState.users, (u) => toSafeString(u.id));
-        for (const u of uniqueUsers) {
-          const uid = toSafeString(u.id);
-          if (!uid) continue;
-          const email = toSafeString(u.email) || `${uid}@lesyncpms.com`;
-          const name = toSafeString(u.name) || 'Staff User';
-          const username = toSafeString(u.username || (u.email ? u.email.split('@')[0] : uid));
-          const role = toSafeString(u.role || u.roleName || 'Staff');
+        const userRows = uniqueUsers
+          .map((u) => {
+            const uid = toSafeString(u.id);
+            if (!uid) return null;
+            return {
+              uid,
+              email: toSafeString(u.email) || `${uid}@lesyncpms.com`,
+              name: toSafeString(u.name) || 'Staff User',
+              username: toSafeString(u.username || (u.email ? u.email.split('@')[0] : uid)),
+              role: toSafeString(u.role || u.roleName || 'Staff'),
+              createdAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
+
+        if (userRows.length > 0) {
           await db
             .insert(users)
-            .values({
-              uid,
-              email,
-              name,
-              username,
-              role,
-              createdAt: new Date(),
-            })
+            .values(userRows)
             .onConflictDoUpdate({
               target: users.uid,
               set: {
-                email,
-                name,
-                username,
-                role,
+                email: sql`excluded.email`,
+                name: sql`excluded.name`,
+                username: sql`excluded.username`,
+                role: sql`excluded.role`,
               },
             });
         }
@@ -554,173 +556,158 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 1. Sync Rooms with deduplication & atomic upsert
+    // 1. Sync Rooms with deduplication & batch upsert
     if (Array.isArray(fullState.rooms) && fullState.rooms.length > 0) {
       try {
         const uniqueRooms = deduplicate(fullState.rooms, (r) => toSafeString(r.roomNumber || r.id));
-        for (const r of uniqueRooms) {
-          const roomNum = toSafeString(r.roomNumber);
-          if (!roomNum || roomNum === '000') continue;
-          const roomId = toSafeString(r.id) || `rm-${roomNum}`;
-          const roomTypeName = toSafeString(r.roomTypeName || r.type, 'Standard');
-          const floor = toSafeString(r.floor, 'Floor 1');
-          const status = toSafeString(r.status || r.housekeepingStatus, 'Clean & Vacant');
-          const condition = toSafeString(r.condition || r.operationalStatus, 'Operational');
-          const rate = toSafeNumber(r.rate || r.baseRate, 0);
-          const updatedAt = new Date();
+        const roomRows = uniqueRooms
+          .map((r) => {
+            const roomNum = toSafeString(r.roomNumber);
+            if (!roomNum || roomNum === '000') return null;
+            return {
+              id: toSafeString(r.id) || `rm-${roomNum}`,
+              roomNumber: roomNum,
+              roomTypeName: toSafeString(r.roomTypeName || r.type, 'Standard'),
+              floor: toSafeString(r.floor, 'Floor 1'),
+              status: toSafeString(r.status || r.housekeepingStatus, 'Clean & Vacant'),
+              condition: toSafeString(r.condition || r.operationalStatus, 'Operational'),
+              rate: toSafeNumber(r.rate || r.baseRate, 0),
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
+        if (roomRows.length > 0) {
           await db
             .insert(pmsRooms)
-            .values({
-              id: roomId,
-              roomNumber: roomNum,
-              roomTypeName,
-              floor,
-              status,
-              condition,
-              rate,
-              updatedAt,
-            })
+            .values(roomRows)
             .onConflictDoUpdate({
               target: pmsRooms.roomNumber,
               set: {
-                roomTypeName,
-                floor,
-                status,
-                condition,
-                rate,
-                updatedAt,
+                roomTypeName: sql`excluded.room_type_name`,
+                floor: sql`excluded.floor`,
+                status: sql`excluded.status`,
+                condition: sql`excluded.condition`,
+                rate: sql`excluded.rate`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
-        }
 
-        // Prune deleted rooms from relational table if full active room inventory is supplied
-        const activeRoomNumbers = uniqueRooms.map((r) => toSafeString(r.roomNumber)).filter(Boolean);
-        if (activeRoomNumbers.length > 0) {
-          await db.delete(pmsRooms).where(notInArray(pmsRooms.roomNumber, activeRoomNumbers));
+          const activeRoomNumbers = roomRows.map((r) => r.roomNumber);
+          if (activeRoomNumbers.length > 0) {
+            await db.delete(pmsRooms).where(notInArray(pmsRooms.roomNumber, activeRoomNumbers));
+          }
         }
       } catch (err: any) {
         console.warn('Rooms relational sync notice:', err?.message);
       }
     }
 
-    // 2. Sync Reservations with deduplication & atomic upsert
+    // 2. Sync Reservations with deduplication & batch upsert
     if (Array.isArray(fullState.reservations) && fullState.reservations.length > 0) {
       try {
         const uniqueRes = deduplicate(fullState.reservations, (res) => toSafeString(res.id));
         totalEntitiesCount += uniqueRes.length;
-        for (const res of uniqueRes) {
-          const resId = toSafeString(res.id);
-          if (!resId) continue;
-          const resNum = toSafeString(res.reservationNumber, `RES-${resId}`);
-          const guestName = toSafeString(res.guestName, 'Guest');
-          const guestPhone = res.phone || res.guestPhone || null;
-          const guestEmail = res.email || res.guestEmail || null;
-          const checkInDate = toSafeString(res.arrivalDate || res.checkInDate || res.checkIn, '2026-09-24');
-          const checkOutDate = toSafeString(res.departureDate || res.checkOutDate || res.checkOut, '2026-09-25');
-          const roomTypeName = res.roomTypeName || null;
-          const totalAmount = toSafeNumber(res.totalEstimatedAmount || res.totalAmount || res.total, 0);
-          const depositAmount = toSafeNumber(res.depositAmount || res.paidAmount || res.deposit, 0);
-          const balance = toSafeNumber(res.balance, Math.max(0, totalAmount - depositAmount));
-          const status = toSafeString(res.status, 'Confirmed');
-          const updatedAt = new Date();
-
-          await db
-            .insert(pmsReservations)
-            .values({
+        const resRows = uniqueRes
+          .map((res) => {
+            const resId = toSafeString(res.id);
+            if (!resId) return null;
+            const totalAmount = toSafeNumber(res.totalEstimatedAmount || res.totalAmount || res.total, 0);
+            const depositAmount = toSafeNumber(res.depositAmount || res.paidAmount || res.deposit, 0);
+            return {
               id: resId,
-              reservationNumber: resNum,
-              guestName,
-              guestPhone,
-              guestEmail,
-              checkInDate,
-              checkOutDate,
-              roomTypeName,
+              reservationNumber: toSafeString(res.reservationNumber, `RES-${resId}`),
+              guestName: toSafeString(res.guestName, 'Guest'),
+              guestPhone: res.phone || res.guestPhone || null,
+              guestEmail: res.email || res.guestEmail || null,
+              checkInDate: toSafeString(res.arrivalDate || res.checkInDate || res.checkIn, '2026-09-24'),
+              checkOutDate: toSafeString(res.departureDate || res.checkOutDate || res.checkOut, '2026-09-25'),
+              roomTypeName: res.roomTypeName || null,
               totalAmount,
               depositAmount,
-              balance,
-              status,
-              updatedAt,
-            })
+              balance: toSafeNumber(res.balance, Math.max(0, totalAmount - depositAmount)),
+              status: toSafeString(res.status, 'Confirmed'),
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
+
+        if (resRows.length > 0) {
+          await db
+            .insert(pmsReservations)
+            .values(resRows)
             .onConflictDoUpdate({
               target: pmsReservations.id,
               set: {
-                reservationNumber: resNum,
-                guestName,
-                guestPhone,
-                guestEmail,
-                checkInDate,
-                checkOutDate,
-                roomTypeName,
-                totalAmount,
-                depositAmount,
-                balance,
-                status,
-                updatedAt,
+                reservationNumber: sql`excluded.reservation_number`,
+                guestName: sql`excluded.guest_name`,
+                guestPhone: sql`excluded.guest_phone`,
+                guestEmail: sql`excluded.guest_email`,
+                checkInDate: sql`excluded.check_in_date`,
+                checkOutDate: sql`excluded.check_out_date`,
+                roomTypeName: sql`excluded.room_type_name`,
+                totalAmount: sql`excluded.total_amount`,
+                depositAmount: sql`excluded.deposit_amount`,
+                balance: sql`excluded.balance`,
+                status: sql`excluded.status`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
-        }
 
-        // Prune deleted reservations from relational table
-        const activeResIds = uniqueRes.map((r) => toSafeString(r.id)).filter(Boolean);
-        if (activeResIds.length > 0) {
-          await db.delete(pmsReservations).where(notInArray(pmsReservations.id, activeResIds));
+          const activeResIds = resRows.map((r) => r.id);
+          if (activeResIds.length > 0) {
+            await db.delete(pmsReservations).where(notInArray(pmsReservations.id, activeResIds));
+          }
         }
       } catch (err: any) {
         console.warn('Reservations relational sync notice:', err?.message);
       }
     }
 
-    // 3. Sync Stays with deduplication & atomic upsert
+    // 3. Sync Stays with deduplication & batch upsert
     if (Array.isArray(fullState.stays) && fullState.stays.length > 0) {
       try {
         const uniqueStays = deduplicate(fullState.stays, (s) => toSafeString(s.id));
         totalEntitiesCount += uniqueStays.length;
-        for (const s of uniqueStays) {
-          const stayId = toSafeString(s.id);
-          if (!stayId) continue;
-          const stayNum = toSafeString(s.stayNumber, `STY-${stayId}`);
-          const roomId = toSafeString(s.roomId || s.roomNumber);
-          const roomNumber = toSafeString(s.roomNumber, '000');
-          const guestName = toSafeString(s.guestName, 'Guest');
-          const checkInAt = s.checkInAt ? String(s.checkInAt) : null;
-          const expectedCheckOutAt = s.expectedCheckOutAt ? String(s.expectedCheckOutAt) : null;
-          const actualCheckOutAt = s.actualCheckOutAt ? String(s.actualCheckOutAt) : null;
-          const rate = toSafeNumber(s.rate, 0);
-          const status = toSafeString(s.status, 'Active');
-          const folioId = s.folioId ? String(s.folioId) : null;
-          const updatedAt = new Date();
+        const stayRows = uniqueStays
+          .map((s) => {
+            const stayId = toSafeString(s.id);
+            if (!stayId) return null;
+            return {
+              id: stayId,
+              stayNumber: toSafeString(s.stayNumber, `STY-${stayId}`),
+              roomId: toSafeString(s.roomId || s.roomNumber),
+              roomNumber: toSafeString(s.roomNumber, '000'),
+              guestName: toSafeString(s.guestName, 'Guest'),
+              checkInAt: s.checkInAt ? String(s.checkInAt) : null,
+              expectedCheckOutAt: s.expectedCheckOutAt ? String(s.expectedCheckOutAt) : null,
+              actualCheckOutAt: s.actualCheckOutAt ? String(s.actualCheckOutAt) : null,
+              rate: toSafeNumber(s.rate, 0),
+              status: toSafeString(s.status, 'Active'),
+              folioId: s.folioId ? String(s.folioId) : null,
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
+        if (stayRows.length > 0) {
           await db
             .insert(pmsStays)
-            .values({
-              id: stayId,
-              stayNumber: stayNum,
-              roomId,
-              roomNumber,
-              guestName,
-              checkInAt,
-              expectedCheckOutAt,
-              actualCheckOutAt,
-              rate,
-              status,
-              folioId,
-              updatedAt,
-            })
+            .values(stayRows)
             .onConflictDoUpdate({
               target: pmsStays.id,
               set: {
-                stayNumber: stayNum,
-                roomId,
-                roomNumber,
-                guestName,
-                checkInAt,
-                expectedCheckOutAt,
-                actualCheckOutAt,
-                rate,
-                status,
-                folioId,
-                updatedAt,
+                stayNumber: sql`excluded.stay_number`,
+                roomId: sql`excluded.room_id`,
+                roomNumber: sql`excluded.room_number`,
+                guestName: sql`excluded.guest_name`,
+                checkInAt: sql`excluded.check_in_at`,
+                expectedCheckOutAt: sql`excluded.expected_check_out_at`,
+                actualCheckOutAt: sql`excluded.actual_check_out_at`,
+                rate: sql`excluded.rate`,
+                status: sql`excluded.status`,
+                folioId: sql`excluded.folio_id`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -729,59 +716,57 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 4. Sync Folios with deduplication, null-safety, and atomic upsert
+    // 4. Sync Folios with deduplication, null-safety, and batch upsert
     if (Array.isArray(fullState.folios) && fullState.folios.length > 0) {
       try {
         const uniqueFolios = deduplicate(fullState.folios, (f) => toSafeString(f.id));
         totalEntitiesCount += uniqueFolios.length;
-        for (const f of uniqueFolios) {
-          const folioId = toSafeString(f.id, `fol-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-          if (!folioId) continue;
-          const folioNum = toSafeString(f.folioNumber, `FOL-${folioId}`);
-          const guestName = toSafeString(f.guestName, 'Guest');
-          const roomNumber = toSafeString(f.roomNumber, 'N/A');
-          const subtotal = toSafeNumber(f.subtotal, 0);
-          const taxTotal = toSafeNumber(f.taxTotal ?? f.tax, 0);
-          const serviceChargeTotal = toSafeNumber(f.serviceChargeTotal ?? f.serviceCharge, 0);
-          const grandTotal = toSafeNumber(f.grandTotal ?? f.total, subtotal + taxTotal + serviceChargeTotal);
-          const paidTotal = toSafeNumber(f.paidTotal ?? f.paid, 0);
-          const balance = toSafeNumber(f.balance, grandTotal - paidTotal);
-          const status = toSafeString(f.status, 'Open');
-          const items = Array.isArray(f.items) ? f.items : [];
-          const updatedAt = new Date();
-
-          await db
-            .insert(pmsFolios)
-            .values({
+        const folioRows = uniqueFolios
+          .map((f) => {
+            const folioId = toSafeString(f.id, `fol-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+            if (!folioId) return null;
+            const subtotal = toSafeNumber(f.subtotal, 0);
+            const taxTotal = toSafeNumber(f.taxTotal ?? f.tax, 0);
+            const serviceChargeTotal = toSafeNumber(f.serviceChargeTotal ?? f.serviceCharge, 0);
+            const grandTotal = toSafeNumber(f.grandTotal ?? f.total, subtotal + taxTotal + serviceChargeTotal);
+            const paidTotal = toSafeNumber(f.paidTotal ?? f.paid, 0);
+            return {
               id: folioId,
-              folioNumber: folioNum,
-              guestName,
-              roomNumber,
+              folioNumber: toSafeString(f.folioNumber, `FOL-${folioId}`),
+              guestName: toSafeString(f.guestName, 'Guest'),
+              roomNumber: toSafeString(f.roomNumber, 'N/A'),
               subtotal,
               taxTotal,
               serviceChargeTotal,
               grandTotal,
               paidTotal,
-              balance,
-              status,
-              items,
-              updatedAt,
-            })
+              balance: toSafeNumber(f.balance, grandTotal - paidTotal),
+              status: toSafeString(f.status, 'Open'),
+              items: Array.isArray(f.items) ? f.items : [],
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
+
+        if (folioRows.length > 0) {
+          await db
+            .insert(pmsFolios)
+            .values(folioRows)
             .onConflictDoUpdate({
               target: pmsFolios.id,
               set: {
-                folioNumber: folioNum,
-                guestName,
-                roomNumber,
-                subtotal,
-                taxTotal,
-                serviceChargeTotal,
-                grandTotal,
-                paidTotal,
-                balance,
-                status,
-                items,
-                updatedAt,
+                folioNumber: sql`excluded.folio_number`,
+                guestName: sql`excluded.guest_name`,
+                roomNumber: sql`excluded.room_number`,
+                subtotal: sql`excluded.subtotal`,
+                taxTotal: sql`excluded.tax_total`,
+                serviceChargeTotal: sql`excluded.service_charge_total`,
+                grandTotal: sql`excluded.grand_total`,
+                paidTotal: sql`excluded.paid_total`,
+                balance: sql`excluded.balance`,
+                status: sql`excluded.status`,
+                items: sql`excluded.items`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -790,61 +775,60 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 5. Sync Payments with deduplication & atomic upsert
+    // 5. Sync Payments with deduplication & batch upsert
     if (Array.isArray(fullState.payments) && fullState.payments.length > 0) {
       try {
         const uniquePayments = deduplicate(fullState.payments, (p) => toSafeString(p.id));
-        for (const p of uniquePayments) {
-          const paymentId = toSafeString(p.id);
-          const txnNumber = toSafeString(p.transactionNumber || p.paymentNumber, `PAY-${paymentId}`);
-          const folioId = p.folioId ? String(p.folioId) : null;
-          const eventBookingId = p.eventBookingId ? String(p.eventBookingId) : null;
-          const amount = toSafeNumber(p.amount, 0);
-          const method = toSafeString(p.method || p.paymentMethod, 'Cash');
-          let reference = p.reference || p.referenceNumber || null;
-          if (!reference || reference === 'Payment' || reference === 'Deposit') {
-            if (p.transactionNo || p.traceNo) {
-              reference = [
-                p.transactionNo ? `Txn: ${p.transactionNo}` : '',
-                p.traceNo ? `Trace: ${p.traceNo}` : ''
-              ].filter(Boolean).join(' | ');
-            } else if (p.cardType) {
-              reference = `${p.cardType} POS`;
+        const paymentRows = uniquePayments
+          .map((p) => {
+            const paymentId = toSafeString(p.id);
+            if (!paymentId) return null;
+            let reference = p.reference || p.referenceNumber || null;
+            if (!reference || reference === 'Payment' || reference === 'Deposit') {
+              if (p.transactionNo || p.traceNo) {
+                reference = [
+                  p.transactionNo ? `Txn: ${p.transactionNo}` : '',
+                  p.traceNo ? `Trace: ${p.traceNo}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' | ');
+              } else if (p.cardType) {
+                reference = `${p.cardType} POS`;
+              }
             }
-          }
-          const status = toSafeString(p.status, 'Completed');
-          const createdBy = toSafeString(p.createdBy || p.receivedBy, 'System');
-          const createdAt = p.createdAt ? String(p.createdAt) : new Date().toISOString();
-          const syncedAt = new Date();
+            return {
+              id: paymentId,
+              transactionNumber: toSafeString(p.transactionNumber || p.paymentNumber, `PAY-${paymentId}`),
+              folioId: p.folioId ? String(p.folioId) : null,
+              eventBookingId: p.eventBookingId ? String(p.eventBookingId) : null,
+              amount: toSafeNumber(p.amount, 0),
+              method: toSafeString(p.method || p.paymentMethod, 'Cash'),
+              reference,
+              status: toSafeString(p.status, 'Completed'),
+              createdBy: toSafeString(p.createdBy || p.receivedBy, 'System'),
+              createdAt: p.createdAt ? String(p.createdAt) : new Date().toISOString(),
+              syncedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
+        if (paymentRows.length > 0) {
           await db
             .insert(pmsPayments)
-            .values({
-              id: paymentId,
-              transactionNumber: txnNumber,
-              folioId,
-              eventBookingId,
-              amount,
-              method,
-              reference,
-              status,
-              createdBy,
-              createdAt,
-              syncedAt,
-            })
+            .values(paymentRows)
             .onConflictDoUpdate({
               target: pmsPayments.id,
               set: {
-                transactionNumber: txnNumber,
-                folioId,
-                eventBookingId,
-                amount,
-                method,
-                reference,
-                status,
-                createdBy,
-                createdAt,
-                syncedAt,
+                transactionNumber: sql`excluded.transaction_number`,
+                folioId: sql`excluded.folio_id`,
+                eventBookingId: sql`excluded.event_booking_id`,
+                amount: sql`excluded.amount`,
+                method: sql`excluded.method`,
+                reference: sql`excluded.reference`,
+                status: sql`excluded.status`,
+                createdBy: sql`excluded.created_by`,
+                createdAt: sql`excluded.created_at`,
+                syncedAt: sql`excluded.synced_at`,
               },
             });
         }
@@ -853,53 +837,49 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 6. Sync Event Bookings with deduplication & atomic upsert
+    // 6. Sync Event Bookings with deduplication & batch upsert
     if (Array.isArray(fullState.eventBookings) && fullState.eventBookings.length > 0) {
       try {
         const uniqueEvents = deduplicate(fullState.eventBookings, (e) => toSafeString(e.id));
         totalEntitiesCount += uniqueEvents.length;
-        for (const e of uniqueEvents) {
-          const eventId = toSafeString(e.id);
-          if (!eventId) continue;
-          const eventNumber = toSafeString(e.eventNumber, `EVT-${eventId}`);
-          const clientName = toSafeString(e.clientName, 'Client');
-          const hallName = toSafeString(e.hallName, 'Hall');
-          const eventName = toSafeString(e.eventName, 'Event');
-          const eventType = toSafeString(e.eventType, 'Corporate');
-          const eventDate = toSafeString(e.eventDate, '2026-08-31');
-          const total = toSafeNumber(e.total || e.totalAmount, 0);
-          const balance = toSafeNumber(e.balance, total);
-          const status = toSafeString(e.status, 'Confirmed');
-          const updatedAt = new Date();
+        const eventRows = uniqueEvents
+          .map((e) => {
+            const eventId = toSafeString(e.id);
+            if (!eventId) return null;
+            const total = toSafeNumber(e.total || e.totalAmount, 0);
+            return {
+              id: eventId,
+              eventNumber: toSafeString(e.eventNumber, `EVT-${eventId}`),
+              clientName: toSafeString(e.clientName, 'Client'),
+              hallName: toSafeString(e.hallName, 'Hall'),
+              eventName: toSafeString(e.eventName, 'Event'),
+              eventType: toSafeString(e.eventType, 'Corporate'),
+              eventDate: toSafeString(e.eventDate, '2026-08-31'),
+              total,
+              balance: toSafeNumber(e.balance, total),
+              status: toSafeString(e.status, 'Confirmed'),
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
+        if (eventRows.length > 0) {
           await db
             .insert(pmsEventBookings)
-            .values({
-              id: eventId,
-              eventNumber,
-              clientName,
-              hallName,
-              eventName,
-              eventType,
-              eventDate,
-              total,
-              balance,
-              status,
-              updatedAt,
-            })
+            .values(eventRows)
             .onConflictDoUpdate({
               target: pmsEventBookings.id,
               set: {
-                eventNumber,
-                clientName,
-                hallName,
-                eventName,
-                eventType,
-                eventDate,
-                total,
-                balance,
-                status,
-                updatedAt,
+                eventNumber: sql`excluded.event_number`,
+                clientName: sql`excluded.client_name`,
+                hallName: sql`excluded.hall_name`,
+                eventName: sql`excluded.event_name`,
+                eventType: sql`excluded.event_type`,
+                eventDate: sql`excluded.event_date`,
+                total: sql`excluded.total`,
+                balance: sql`excluded.balance`,
+                status: sql`excluded.status`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -908,43 +888,41 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 7. Sync General Ledger Accounts with deduplication & atomic upsert
+    // 7. Sync General Ledger Accounts with deduplication & batch upsert
     if (Array.isArray(fullState.glAccounts) && fullState.glAccounts.length > 0) {
       try {
         const uniqueGl = deduplicate(fullState.glAccounts, (gl) => toSafeString(gl.code || gl.id));
         totalEntitiesCount += uniqueGl.length;
-        for (const gl of uniqueGl) {
-          const glCode = toSafeString(gl.code);
-          if (!glCode) continue;
-          const glId = toSafeString(gl.id, glCode);
-          const name = toSafeString(gl.name, 'GL Account');
-          const category = toSafeString(gl.category, 'Revenue');
-          const accountType = toSafeString(gl.accountType || gl.type, 'Balance Sheet');
-          const balance = toSafeNumber(gl.balance, 0);
-          const isActive = gl.isActive !== false;
-          const updatedAt = new Date();
+        const glRows = uniqueGl
+          .map((gl) => {
+            const glCode = toSafeString(gl.code);
+            if (!glCode) return null;
+            return {
+              id: `gl-${glCode}`,
+              code: glCode,
+              name: toSafeString(gl.name, 'GL Account'),
+              category: toSafeString(gl.category, 'Revenue'),
+              accountType: toSafeString(gl.accountType || gl.type, 'Balance Sheet'),
+              balance: toSafeNumber(gl.balance, 0),
+              isActive: gl.isActive !== false,
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
+        if (glRows.length > 0) {
           await db
             .insert(pmsGlAccounts)
-            .values({
-              id: glId,
-              code: glCode,
-              name,
-              category,
-              accountType,
-              balance,
-              isActive,
-              updatedAt,
-            })
+            .values(glRows)
             .onConflictDoUpdate({
               target: pmsGlAccounts.code,
               set: {
-                name,
-                category,
-                accountType,
-                balance,
-                isActive,
-                updatedAt,
+                name: sql`excluded.name`,
+                category: sql`excluded.category`,
+                accountType: sql`excluded.account_type`,
+                balance: sql`excluded.balance`,
+                isActive: sql`excluded.is_active`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -953,59 +931,45 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 8. Sync Journal Vouchers with deduplication & atomic upsert
+    // 8. Sync Journal Vouchers with deduplication & batch upsert
     if (Array.isArray(fullState.journalVouchers) && fullState.journalVouchers.length > 0) {
       try {
         const uniqueJv = deduplicate(fullState.journalVouchers, (jv) => toSafeString(jv.voucherNumber || jv.id));
         totalEntitiesCount += uniqueJv.length;
-        for (const jv of uniqueJv) {
-          const voucherNum = toSafeString(jv.voucherNumber || jv.id, `JV-${Date.now()}`);
-          if (!voucherNum) continue;
-          const jvId = toSafeString(jv.id, `jv-${voucherNum}`);
-          const voucherDate = toSafeString(jv.voucherDate || jv.date, '2026-08-31');
-          const reference = jv.reference || jv.sourceReference || null;
-          const narration = toSafeString(jv.narration, 'Journal Entry');
-          const totalDebit = toSafeNumber(jv.totalDebit, 0);
-          const totalCredit = toSafeNumber(jv.totalCredit, 0);
-          const status = toSafeString(jv.status, 'Posted');
-          const lines = Array.isArray(jv.lines) ? jv.lines : (Array.isArray(jv.entries) ? jv.entries : []);
-          const createdAt = jv.createdAt ? new Date(jv.createdAt) : new Date();
+        const jvRows = uniqueJv
+          .map((jv) => {
+            const voucherNum = toSafeString(jv.voucherNumber || jv.id, `JV-${Date.now()}`);
+            if (!voucherNum) return null;
+            const lines = Array.isArray(jv.lines) ? jv.lines : (Array.isArray(jv.entries) ? jv.entries : []);
+            return {
+              id: `jv-${voucherNum}`,
+              voucherNumber: voucherNum,
+              voucherDate: toSafeString(jv.voucherDate || jv.date, '2026-08-31'),
+              reference: jv.reference || jv.sourceReference || null,
+              narration: toSafeString(jv.narration, 'Journal Entry'),
+              totalDebit: toSafeNumber(jv.totalDebit, 0),
+              totalCredit: toSafeNumber(jv.totalCredit, 0),
+              status: toSafeString(jv.status, 'Posted'),
+              lines,
+              createdAt: jv.createdAt ? new Date(jv.createdAt) : new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
-          // Safely prune any legacy conflicting rows where either id or voucherNumber mismatches
-          await db
-            .delete(pmsJournalVouchers)
-            .where(
-              or(
-                and(eq(pmsJournalVouchers.id, jvId), ne(pmsJournalVouchers.voucherNumber, voucherNum)),
-                and(eq(pmsJournalVouchers.voucherNumber, voucherNum), ne(pmsJournalVouchers.id, jvId))
-              )
-            );
-
+        if (jvRows.length > 0) {
           await db
             .insert(pmsJournalVouchers)
-            .values({
-              id: jvId,
-              voucherNumber: voucherNum,
-              voucherDate,
-              reference,
-              narration,
-              totalDebit,
-              totalCredit,
-              status,
-              lines,
-              createdAt,
-            })
+            .values(jvRows)
             .onConflictDoUpdate({
               target: pmsJournalVouchers.voucherNumber,
               set: {
-                id: jvId,
-                voucherDate,
-                reference,
-                narration,
-                totalDebit,
-                totalCredit,
-                status,
-                lines,
+                voucherDate: sql`excluded.voucher_date`,
+                reference: sql`excluded.reference`,
+                narration: sql`excluded.narration`,
+                totalDebit: sql`excluded.total_debit`,
+                totalCredit: sql`excluded.total_credit`,
+                status: sql`excluded.status`,
+                lines: sql`excluded.lines`,
               },
             });
         }
@@ -1014,83 +978,65 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 9. Sync Invoices
+    // 9. Sync Invoices with deduplication & batch upsert
     if (Array.isArray(fullState.invoices) && fullState.invoices.length > 0) {
       try {
         const validInvoices = deduplicate(fullState.invoices, (i) => toSafeString(i.invoiceNumber || i.id));
         totalEntitiesCount += validInvoices.length;
-
-        for (const inv of validInvoices) {
-          const invoiceNum = toSafeString(inv.invoiceNumber, inv.id || `INV-${Date.now()}`);
-          if (!invoiceNum) continue;
-          const invId = toSafeString(inv.id, `inv-${invoiceNum}`);
-          const folioId = toSafeString(inv.folioId);
-          const eventBookingId = toSafeString(inv.eventBookingId);
-          const guestName = toSafeString(inv.guestName);
-          const clientName = toSafeString(inv.clientName);
-          const subtotal = toSafeNumber(inv.subtotal);
-          const taxTotal = toSafeNumber(inv.taxTotal || inv.tax);
-          const serviceChargeTotal = toSafeNumber(inv.serviceChargeTotal || inv.serviceCharge);
-          const grandTotal = toSafeNumber(inv.grandTotal || inv.total);
-          const paidTotal = toSafeNumber(inv.paidTotal || inv.paidAmount);
-          const balance = toSafeNumber(inv.balance, grandTotal - paidTotal);
-          const status = toSafeString(inv.status, 'Issued');
-          const invoiceDate = toSafeString(inv.invoiceDate || inv.date, new Date().toISOString().split('T')[0]);
-          const dueDate = toSafeString(inv.dueDate);
-          const paymentMethod = toSafeString(inv.paymentMethod);
-          const items = inv.items || [];
-          const createdAt = inv.createdAt ? new Date(inv.createdAt) : new Date();
-
-          // Safely prune any legacy conflicting rows where either id or invoiceNumber mismatches
-          await db
-            .delete(pmsInvoices)
-            .where(
-              or(
-                and(eq(pmsInvoices.id, invId), ne(pmsInvoices.invoiceNumber, invoiceNum)),
-                and(eq(pmsInvoices.invoiceNumber, invoiceNum), ne(pmsInvoices.id, invId))
-              )
-            );
-
-          await db
-            .insert(pmsInvoices)
-            .values({
-              id: invId,
+        const invRows = validInvoices
+          .map((inv) => {
+            const invoiceNum = toSafeString(inv.invoiceNumber, inv.id || `INV-${Date.now()}`);
+            if (!invoiceNum) return null;
+            const subtotal = toSafeNumber(inv.subtotal);
+            const taxTotal = toSafeNumber(inv.taxTotal || inv.tax);
+            const serviceChargeTotal = toSafeNumber(inv.serviceChargeTotal || inv.serviceCharge);
+            const grandTotal = toSafeNumber(inv.grandTotal || inv.total);
+            const paidTotal = toSafeNumber(inv.paidTotal || inv.paidAmount);
+            return {
+              id: `inv-${invoiceNum}`,
               invoiceNumber: invoiceNum,
-              folioId: folioId || null,
-              eventBookingId: eventBookingId || null,
-              guestName: guestName || null,
-              clientName: clientName || null,
+              folioId: toSafeString(inv.folioId) || null,
+              eventBookingId: toSafeString(inv.eventBookingId) || null,
+              guestName: toSafeString(inv.guestName) || null,
+              clientName: toSafeString(inv.clientName) || null,
               subtotal,
               taxTotal,
               serviceChargeTotal,
               grandTotal,
               paidTotal,
-              balance,
-              status,
-              invoiceDate,
-              dueDate: dueDate || null,
-              paymentMethod: paymentMethod || null,
-              items,
-              createdAt,
-            })
+              balance: toSafeNumber(inv.balance, grandTotal - paidTotal),
+              status: toSafeString(inv.status, 'Issued'),
+              invoiceDate: toSafeString(inv.invoiceDate || inv.date, new Date().toISOString().split('T')[0]),
+              dueDate: toSafeString(inv.dueDate) || null,
+              paymentMethod: toSafeString(inv.paymentMethod) || null,
+              items: inv.items || [],
+              createdAt: inv.createdAt ? new Date(inv.createdAt) : new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
+
+        if (invRows.length > 0) {
+          await db
+            .insert(pmsInvoices)
+            .values(invRows)
             .onConflictDoUpdate({
               target: pmsInvoices.invoiceNumber,
               set: {
-                folioId: folioId || null,
-                eventBookingId: eventBookingId || null,
-                guestName: guestName || null,
-                clientName: clientName || null,
-                subtotal,
-                taxTotal,
-                serviceChargeTotal,
-                grandTotal,
-                paidTotal,
-                balance,
-                status,
-                invoiceDate,
-                dueDate: dueDate || null,
-                paymentMethod: paymentMethod || null,
-                items,
+                folioId: sql`excluded.folio_id`,
+                eventBookingId: sql`excluded.event_booking_id`,
+                guestName: sql`excluded.guest_name`,
+                clientName: sql`excluded.client_name`,
+                subtotal: sql`excluded.subtotal`,
+                taxTotal: sql`excluded.tax_total`,
+                serviceChargeTotal: sql`excluded.service_charge_total`,
+                grandTotal: sql`excluded.grand_total`,
+                paidTotal: sql`excluded.paid_total`,
+                balance: sql`excluded.balance`,
+                status: sql`excluded.status`,
+                invoiceDate: sql`excluded.invoice_date`,
+                dueDate: sql`excluded.due_date`,
+                paymentMethod: sql`excluded.payment_method`,
+                items: sql`excluded.items`,
               },
             });
         }
@@ -1099,55 +1045,49 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 10. Sync City Ledger Accounts (AR)
+    // 10. Sync City Ledger Accounts (AR) with batch upsert
     if (Array.isArray(fullState.cityLedgerAccounts) && fullState.cityLedgerAccounts.length > 0) {
       try {
         const validCl = deduplicate(fullState.cityLedgerAccounts, (c) => toSafeString(c.accountNumber || c.id));
         totalEntitiesCount += validCl.length;
+        const clRows = validCl
+          .map((cl) => {
+            const accNum = toSafeString(cl.accountNumber, cl.id || `CL-${Date.now()}`);
+            if (!accNum) return null;
+            return {
+              id: `cl-${accNum}`,
+              accountNumber: accNum,
+              companyName: toSafeString(cl.companyName, 'Corporate Client'),
+              contactPerson: toSafeString(cl.contactPerson) || null,
+              phone: toSafeString(cl.phone) || null,
+              email: toSafeString(cl.email) || null,
+              creditLimit: toSafeNumber(cl.creditLimit),
+              currentBalance: toSafeNumber(cl.currentBalance),
+              paymentTerms: toSafeString(cl.paymentTerms, 'Net 30'),
+              status: toSafeString(cl.status, 'Active'),
+              notes: toSafeString(cl.notes) || null,
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
-        for (const cl of validCl) {
-          const accNum = toSafeString(cl.accountNumber, cl.id || `CL-${Date.now()}`);
-          if (!accNum) continue;
-          const clId = toSafeString(cl.id, `cl-${accNum}`);
-          const companyName = toSafeString(cl.companyName, 'Corporate Client');
-          const contactPerson = toSafeString(cl.contactPerson);
-          const phone = toSafeString(cl.phone);
-          const email = toSafeString(cl.email);
-          const creditLimit = toSafeNumber(cl.creditLimit);
-          const currentBalance = toSafeNumber(cl.currentBalance);
-          const paymentTerms = toSafeString(cl.paymentTerms, 'Net 30');
-          const status = toSafeString(cl.status, 'Active');
-          const notes = toSafeString(cl.notes);
-
+        if (clRows.length > 0) {
           await db
             .insert(pmsCityLedger)
-            .values({
-              id: clId,
-              accountNumber: accNum,
-              companyName,
-              contactPerson: contactPerson || null,
-              phone: phone || null,
-              email: email || null,
-              creditLimit,
-              currentBalance,
-              paymentTerms,
-              status,
-              notes: notes || null,
-              updatedAt: new Date(),
-            })
+            .values(clRows)
             .onConflictDoUpdate({
               target: pmsCityLedger.accountNumber,
               set: {
-                companyName,
-                contactPerson: contactPerson || null,
-                phone: phone || null,
-                email: email || null,
-                creditLimit,
-                currentBalance,
-                paymentTerms,
-                status,
-                notes: notes || null,
-                updatedAt: new Date(),
+                companyName: sql`excluded.company_name`,
+                contactPerson: sql`excluded.contact_person`,
+                phone: sql`excluded.phone`,
+                email: sql`excluded.email`,
+                creditLimit: sql`excluded.credit_limit`,
+                currentBalance: sql`excluded.current_balance`,
+                paymentTerms: sql`excluded.payment_terms`,
+                status: sql`excluded.status`,
+                notes: sql`excluded.notes`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -1156,55 +1096,49 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 11. Sync Suppliers (AP Vendors)
+    // 11. Sync Suppliers (AP Vendors) with batch upsert
     if (Array.isArray(fullState.suppliers) && fullState.suppliers.length > 0) {
       try {
         const validSuppliers = deduplicate(fullState.suppliers, (s) => toSafeString(s.code || s.id));
         totalEntitiesCount += validSuppliers.length;
+        const supRows = validSuppliers
+          .map((sup) => {
+            const code = toSafeString(sup.code, sup.id || `SUP-${Date.now()}`);
+            if (!code) return null;
+            return {
+              id: `sup-${code}`,
+              name: toSafeString(sup.name, 'Vendor'),
+              code,
+              contactPerson: toSafeString(sup.contactPerson) || null,
+              phone: toSafeString(sup.phone) || null,
+              email: toSafeString(sup.email) || null,
+              category: toSafeString(sup.category) || null,
+              paymentTerms: toSafeString(sup.paymentTerms, 'Net 30'),
+              currentBalance: toSafeNumber(sup.currentBalance),
+              bankDetails: sup.bankDetails || null,
+              status: toSafeString(sup.status, 'Active'),
+              updatedAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
-        for (const sup of validSuppliers) {
-          const code = toSafeString(sup.code, sup.id || `SUP-${Date.now()}`);
-          if (!code) continue;
-          const supId = toSafeString(sup.id, `sup-${code}`);
-          const name = toSafeString(sup.name, 'Vendor');
-          const contactPerson = toSafeString(sup.contactPerson);
-          const phone = toSafeString(sup.phone);
-          const email = toSafeString(sup.email);
-          const category = toSafeString(sup.category);
-          const paymentTerms = toSafeString(sup.paymentTerms, 'Net 30');
-          const currentBalance = toSafeNumber(sup.currentBalance);
-          const bankDetails = sup.bankDetails || null;
-          const status = toSafeString(sup.status, 'Active');
-
+        if (supRows.length > 0) {
           await db
             .insert(pmsSuppliers)
-            .values({
-              id: supId,
-              name,
-              code,
-              contactPerson: contactPerson || null,
-              phone: phone || null,
-              email: email || null,
-              category: category || null,
-              paymentTerms,
-              currentBalance,
-              bankDetails,
-              status,
-              updatedAt: new Date(),
-            })
+            .values(supRows)
             .onConflictDoUpdate({
               target: pmsSuppliers.code,
               set: {
-                name,
-                contactPerson: contactPerson || null,
-                phone: phone || null,
-                email: email || null,
-                category: category || null,
-                paymentTerms,
-                currentBalance,
-                bankDetails,
-                status,
-                updatedAt: new Date(),
+                name: sql`excluded.name`,
+                contactPerson: sql`excluded.contact_person`,
+                phone: sql`excluded.phone`,
+                email: sql`excluded.email`,
+                category: sql`excluded.category`,
+                paymentTerms: sql`excluded.payment_terms`,
+                currentBalance: sql`excluded.current_balance`,
+                bankDetails: sql`excluded.bank_details`,
+                status: sql`excluded.status`,
+                updatedAt: sql`excluded.updated_at`,
               },
             });
         }
@@ -1213,57 +1147,52 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 12. Sync Purchase Bills (AP Bills)
+    // 12. Sync Purchase Bills (AP Bills) with batch upsert
     if (Array.isArray(fullState.purchaseBills) && fullState.purchaseBills.length > 0) {
       try {
         const validBills = deduplicate(fullState.purchaseBills, (b) => toSafeString(b.billNumber || b.id));
         totalEntitiesCount += validBills.length;
-
-        for (const bill of validBills) {
-          const billNumber = toSafeString(bill.billNumber, bill.id || `BILL-${Date.now()}`);
-          if (!billNumber) continue;
-          const billId = toSafeString(bill.id, `pb-${billNumber}`);
-          const supplierId = toSafeString(bill.supplierId, 'sup-default');
-          const supplierName = toSafeString(bill.supplierName, 'Vendor');
-          const billDate = toSafeString(bill.billDate || bill.date, new Date().toISOString().split('T')[0]);
-          const dueDate = toSafeString(bill.dueDate);
-          const totalAmount = toSafeNumber(bill.totalAmount || bill.grandTotal);
-          const paidAmount = toSafeNumber(bill.paidAmount || bill.paidTotal);
-          const balance = toSafeNumber(bill.balance, totalAmount - paidAmount);
-          const status = toSafeString(bill.status, 'Open');
-          const items = bill.items || [];
-          const journalVoucherId = toSafeString(bill.journalVoucherId);
-
-          await db
-            .insert(pmsPurchaseBills)
-            .values({
-              id: billId,
+        const billRows = validBills
+          .map((bill) => {
+            const billNumber = toSafeString(bill.billNumber, bill.id || `BILL-${Date.now()}`);
+            if (!billNumber) return null;
+            const totalAmount = toSafeNumber(bill.totalAmount || bill.grandTotal);
+            const paidAmount = toSafeNumber(bill.paidAmount || bill.paidTotal);
+            return {
+              id: `pb-${billNumber}`,
               billNumber,
-              supplierId,
-              supplierName,
-              billDate,
-              dueDate: dueDate || null,
+              supplierId: toSafeString(bill.supplierId, 'sup-default'),
+              supplierName: toSafeString(bill.supplierName, 'Vendor'),
+              billDate: toSafeString(bill.billDate || bill.date, new Date().toISOString().split('T')[0]),
+              dueDate: toSafeString(bill.dueDate) || null,
               totalAmount,
               paidAmount,
-              balance,
-              status,
-              items,
-              journalVoucherId: journalVoucherId || null,
+              balance: toSafeNumber(bill.balance, totalAmount - paidAmount),
+              status: toSafeString(bill.status, 'Open'),
+              items: bill.items || [],
+              journalVoucherId: toSafeString(bill.journalVoucherId) || null,
               createdAt: new Date(),
-            })
+            };
+          })
+          .filter(Boolean) as any[];
+
+        if (billRows.length > 0) {
+          await db
+            .insert(pmsPurchaseBills)
+            .values(billRows)
             .onConflictDoUpdate({
               target: pmsPurchaseBills.billNumber,
               set: {
-                supplierId,
-                supplierName,
-                billDate,
-                dueDate: dueDate || null,
-                totalAmount,
-                paidAmount,
-                balance,
-                status,
-                items,
-                journalVoucherId: journalVoucherId || null,
+                supplierId: sql`excluded.supplier_id`,
+                supplierName: sql`excluded.supplier_name`,
+                billDate: sql`excluded.bill_date`,
+                dueDate: sql`excluded.due_date`,
+                totalAmount: sql`excluded.total_amount`,
+                paidAmount: sql`excluded.paid_amount`,
+                balance: sql`excluded.balance`,
+                status: sql`excluded.status`,
+                items: sql`excluded.items`,
+                journalVoucherId: sql`excluded.journal_voucher_id`,
               },
             });
         }
@@ -1272,57 +1201,50 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 13. Sync Supplier Payments (AP Disbursements)
+    // 13. Sync Supplier Payments (AP Disbursements) with batch upsert
     if (Array.isArray(fullState.supplierPayments) && fullState.supplierPayments.length > 0) {
       try {
         const validPayments = deduplicate(fullState.supplierPayments, (p) => toSafeString(p.paymentNumber || p.id));
         totalEntitiesCount += validPayments.length;
+        const spRows = validPayments
+          .map((sp) => {
+            const paymentNumber = toSafeString(sp.paymentNumber, sp.id || `SPAY-${Date.now()}`);
+            if (!paymentNumber) return null;
+            return {
+              id: `sp-${paymentNumber}`,
+              paymentNumber,
+              supplierId: toSafeString(sp.supplierId, 'sup-default'),
+              supplierName: toSafeString(sp.supplierName, 'Vendor'),
+              billId: toSafeString(sp.billId) || null,
+              amount: toSafeNumber(sp.amount),
+              paymentDate: toSafeString(sp.paymentDate || sp.date, new Date().toISOString().split('T')[0]),
+              paymentMethod: toSafeString(sp.paymentMethod, 'Bank Transfer'),
+              bankAccount: toSafeString(sp.bankAccount) || null,
+              referenceNumber: toSafeString(sp.referenceNumber) || null,
+              status: toSafeString(sp.status, 'Completed'),
+              notes: toSafeString(sp.notes) || null,
+              createdAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
-        for (const sp of validPayments) {
-          const paymentNumber = toSafeString(sp.paymentNumber, sp.id || `SPAY-${Date.now()}`);
-          if (!paymentNumber) continue;
-          const payId = toSafeString(sp.id, `sp-${paymentNumber}`);
-          const supplierId = toSafeString(sp.supplierId, 'sup-default');
-          const supplierName = toSafeString(sp.supplierName, 'Vendor');
-          const billId = toSafeString(sp.billId);
-          const amount = toSafeNumber(sp.amount);
-          const paymentDate = toSafeString(sp.paymentDate || sp.date, new Date().toISOString().split('T')[0]);
-          const paymentMethod = toSafeString(sp.paymentMethod, 'Bank Transfer');
-          const bankAccount = toSafeString(sp.bankAccount);
-          const referenceNumber = toSafeString(sp.referenceNumber);
-          const status = toSafeString(sp.status, 'Completed');
-          const notes = toSafeString(sp.notes);
-
+        if (spRows.length > 0) {
           await db
             .insert(pmsSupplierPayments)
-            .values({
-              id: payId,
-              paymentNumber,
-              supplierId,
-              supplierName,
-              billId: billId || null,
-              amount,
-              paymentDate,
-              paymentMethod,
-              bankAccount: bankAccount || null,
-              referenceNumber: referenceNumber || null,
-              status,
-              notes: notes || null,
-              createdAt: new Date(),
-            })
+            .values(spRows)
             .onConflictDoUpdate({
               target: pmsSupplierPayments.paymentNumber,
               set: {
-                supplierId,
-                supplierName,
-                billId: billId || null,
-                amount,
-                paymentDate,
-                paymentMethod,
-                bankAccount: bankAccount || null,
-                referenceNumber: referenceNumber || null,
-                status,
-                notes: notes || null,
+                supplierId: sql`excluded.supplier_id`,
+                supplierName: sql`excluded.supplier_name`,
+                billId: sql`excluded.bill_id`,
+                amount: sql`excluded.amount`,
+                paymentDate: sql`excluded.payment_date`,
+                paymentMethod: sql`excluded.payment_method`,
+                bankAccount: sql`excluded.bank_account`,
+                referenceNumber: sql`excluded.reference_number`,
+                status: sql`excluded.status`,
+                notes: sql`excluded.notes`,
               },
             });
         }
@@ -1331,60 +1253,52 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       }
     }
 
-    // 14. Sync Restaurant Orders (POS)
+    // 14. Sync Restaurant Orders (POS) with batch upsert
     if (Array.isArray(fullState.restaurantOrders) && fullState.restaurantOrders.length > 0) {
       try {
         const validOrders = deduplicate(fullState.restaurantOrders, (o) => toSafeString(o.orderNumber || o.id));
         totalEntitiesCount += validOrders.length;
+        const ordRows = validOrders
+          .map((ord) => {
+            const orderNumber = toSafeString(ord.orderNumber, ord.id || `ORD-${Date.now()}`);
+            if (!orderNumber) return null;
+            return {
+              id: `ord-${orderNumber}`,
+              orderNumber,
+              orderType: toSafeString(ord.orderType, 'Dine-In'),
+              tableNumber: toSafeString(ord.tableNumber) || null,
+              roomNumber: toSafeString(ord.roomNumber) || null,
+              guestName: toSafeString(ord.guestName) || null,
+              subtotal: toSafeNumber(ord.subtotal),
+              tax: toSafeNumber(ord.tax),
+              serviceCharge: toSafeNumber(ord.serviceCharge),
+              total: toSafeNumber(ord.total),
+              paymentStatus: toSafeString(ord.paymentStatus, 'Paid'),
+              paymentMethod: toSafeString(ord.paymentMethod) || null,
+              items: ord.items || [],
+              createdAt: new Date(),
+            };
+          })
+          .filter(Boolean) as any[];
 
-        for (const ord of validOrders) {
-          const orderNumber = toSafeString(ord.orderNumber, ord.id || `ORD-${Date.now()}`);
-          if (!orderNumber) continue;
-          const ordId = toSafeString(ord.id, `ord-${orderNumber}`);
-          const orderType = toSafeString(ord.orderType, 'Dine-In');
-          const tableNumber = toSafeString(ord.tableNumber);
-          const roomNumber = toSafeString(ord.roomNumber);
-          const guestName = toSafeString(ord.guestName);
-          const subtotal = toSafeNumber(ord.subtotal);
-          const tax = toSafeNumber(ord.tax);
-          const serviceCharge = toSafeNumber(ord.serviceCharge);
-          const total = toSafeNumber(ord.total);
-          const paymentStatus = toSafeString(ord.paymentStatus, 'Paid');
-          const paymentMethod = toSafeString(ord.paymentMethod);
-          const items = ord.items || [];
-
+        if (ordRows.length > 0) {
           await db
             .insert(pmsRestaurantOrders)
-            .values({
-              id: ordId,
-              orderNumber,
-              orderType,
-              tableNumber: tableNumber || null,
-              roomNumber: roomNumber || null,
-              guestName: guestName || null,
-              subtotal,
-              tax,
-              serviceCharge,
-              total,
-              paymentStatus,
-              paymentMethod: paymentMethod || null,
-              items,
-              createdAt: new Date(),
-            })
+            .values(ordRows)
             .onConflictDoUpdate({
               target: pmsRestaurantOrders.orderNumber,
               set: {
-                orderType,
-                tableNumber: tableNumber || null,
-                roomNumber: roomNumber || null,
-                guestName: guestName || null,
-                subtotal,
-                tax,
-                serviceCharge,
-                total,
-                paymentStatus,
-                paymentMethod: paymentMethod || null,
-                items,
+                orderType: sql`excluded.order_type`,
+                tableNumber: sql`excluded.table_number`,
+                roomNumber: sql`excluded.room_number`,
+                guestName: sql`excluded.guest_name`,
+                subtotal: sql`excluded.subtotal`,
+                tax: sql`excluded.tax`,
+                serviceCharge: sql`excluded.service_charge`,
+                total: sql`excluded.total`,
+                paymentStatus: sql`excluded.payment_status`,
+                paymentMethod: sql`excluded.payment_method`,
+                items: sql`excluded.items`,
               },
             });
         }
