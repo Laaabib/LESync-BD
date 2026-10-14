@@ -15,7 +15,6 @@ interface CloudSqlSyncModalProps {
 
 export const CloudSqlSyncModal: React.FC<CloudSqlSyncModalProps> = ({ isOpen, onClose }) => {
   const isAppOwnerOrIT = rbacService.isAppOwnerOrIT();
-  if (!isOpen || !isAppOwnerOrIT) return null;
   const [status, setStatus] = useState<CloudSqlSyncStatus>(cloudSqlSyncService.getStatus());
   const [health, setHealth] = useState<CloudSqlHealthInfo>(cloudSqlSyncService.getHealth());
   const [history, setHistory] = useState<SyncHistoryItem[]>([]);
@@ -71,7 +70,7 @@ export const CloudSqlSyncModal: React.FC<CloudSqlSyncModalProps> = ({ isOpen, on
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !isAppOwnerOrIT) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">

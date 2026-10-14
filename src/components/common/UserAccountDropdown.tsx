@@ -86,27 +86,25 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
-  const creds = liveCreds[activeUser.id] || authService.getCredentials()[activeUser.id];
-  const displayUsername = creds?.username || activeUser.username || activeUser.email.split('@')[0];
+  const creds = activeUser ? (liveCreds[activeUser.id] || authService.getCredentials()[activeUser.id]) : null;
+  const displayUsername = creds?.username || activeUser?.username || (activeUser?.email ? activeUser.email.split('@')[0] : '');
   const employeeId = creds?.employeeId || 'EMP-001';
   const shiftInfo = authService.getActiveShift()?.shiftNumber || 'SFT-M1';
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editName, setEditName] = useState(activeUser.name || '');
+  const [editName, setEditName] = useState(activeUser?.name || '');
   const [editUsername, setEditUsername] = useState(displayUsername || '');
   const [editSaveMsg, setEditSaveMsg] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   useEffect(() => {
-    setEditName(activeUser.name || '');
+    setEditName(activeUser?.name || '');
     setEditUsername(displayUsername || '');
   }, [activeUser, creds, displayUsername]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editName.trim()) return;
+    if (!editName.trim() || !activeUser) return;
     setIsSavingProfile(true);
     try {
       const trimmedName = editName.trim();
@@ -127,6 +125,8 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
       setIsSavingProfile(false);
     }
   };
+
+  if (!isOpen) return null;
 
   const isHeader = position === 'header';
 

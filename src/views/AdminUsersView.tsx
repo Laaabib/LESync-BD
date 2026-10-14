@@ -44,7 +44,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
     if (tab === 'admin-approvals' || tab === 'approvals') return 'approvals';
     if (tab === 'admin-roles' || tab === 'roles') return 'roles';
     if (tab === 'admin-audit' || tab === 'admin-activity' || tab === 'admin-activity-logs' || tab === 'activity-logs' || tab === 'audit') return 'activity-logs';
-    if (tab === 'admin-error-finder' || tab === 'error-finder' || tab === 'admin-errors' || tab === 'errors') return 'error-finder';
+    if (tab === 'admin-error-finder' || tab === 'error-finder' || tab === 'admin-errors' || tab === 'errors' || tab === 'user-error-finder' || tab === 'admin-user-errors') return 'error-finder';
     return 'users';
   };
 

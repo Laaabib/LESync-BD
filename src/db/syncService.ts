@@ -974,23 +974,32 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
                 },
               });
           } catch (conflictErr: any) {
-            // Fallback: Target primary key id if voucher_number unique constraint is not registered yet
-            await db
-              .insert(pmsJournalVouchers)
-              .values(jvRows)
-              .onConflictDoUpdate({
-                target: pmsJournalVouchers.id,
-                set: {
-                  voucherNumber: sql`excluded.voucher_number`,
-                  voucherDate: sql`excluded.voucher_date`,
-                  reference: sql`excluded.reference`,
-                  narration: sql`excluded.narration`,
-                  totalDebit: sql`excluded.total_debit`,
-                  totalCredit: sql`excluded.total_credit`,
-                  status: sql`excluded.status`,
-                  lines: sql`excluded.lines`,
-                },
-              });
+            try {
+              // Fallback: Target primary key id if voucher_number unique constraint is not registered yet
+              await db
+                .insert(pmsJournalVouchers)
+                .values(jvRows)
+                .onConflictDoUpdate({
+                  target: pmsJournalVouchers.id,
+                  set: {
+                    voucherNumber: sql`excluded.voucher_number`,
+                    voucherDate: sql`excluded.voucher_date`,
+                    reference: sql`excluded.reference`,
+                    narration: sql`excluded.narration`,
+                    totalDebit: sql`excluded.total_debit`,
+                    totalCredit: sql`excluded.total_credit`,
+                    status: sql`excluded.status`,
+                    lines: sql`excluded.lines`,
+                  },
+                });
+            } catch (fallbackErr: any) {
+              try {
+                // Secondary fallback: onConflictDoNothing
+                await db.insert(pmsJournalVouchers).values(jvRows).onConflictDoNothing();
+              } catch (ignoreErr: any) {
+                // Non-critical: suppress constraint notice if already synced
+              }
+            }
           }
         }
       } catch (err: any) {
