@@ -29,7 +29,8 @@ export type ReservationStatus =
 export type StayStatus = 
   | 'Active' 
   | 'Checked-Out' 
-  | 'Transferred';
+  | 'Transferred'
+  | 'Cancelled';
 
 export type FolioStatus = 
   | 'Open' 
@@ -434,6 +435,8 @@ export interface Reservation {
   groupMembers?: GroupMember[];
   allocatedRooms?: AllocatedRoom[];
   totalRoomsCount?: number;
+  cancellationReason?: string;
+  cancelledAt?: string;
 }
 
 export interface Stay {
@@ -515,6 +518,8 @@ export interface Folio {
   stopPostReason?: string;
   stopPostBy?: string;
   stopPostAt?: string;
+  notes?: string;
+  reservationId?: string;
 }
 
 export interface Payment {

@@ -3,7 +3,7 @@ import {
   ConciergeBell, LogIn, LogOut, BedDouble, Users, ArrowRightLeft,
   Receipt, FileText, Search, PlusCircle, Printer, Filter, ShieldCheck,
   ShieldAlert, Lock, Unlock, AlertTriangle, X, CheckCircle2, Info,
-  Zap, Clock, Calendar, Sparkles, AlertCircle, Check, XCircle
+  Zap, Clock, Calendar, Sparkles, AlertCircle, Check, XCircle, RotateCcw
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { PmsDatabaseState, getOffsetDate } from '../services/mockPmsDatabase';
@@ -46,17 +46,36 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
   // Arrivals cancellation state
   const [cancellingArrival, setCancellingArrival] = useState<Reservation | null>(null);
   const [arrivalCancelReason, setArrivalCancelReason] = useState<string>('Guest requested cancellation at front desk');
+
+  // In-house stay check-in cancellation state
+  const [cancellingStay, setCancellingStay] = useState<Stay | null>(null);
+  const [stayCancelReason, setStayCancelReason] = useState<string>('Guest requested check-in cancellation / room release');
+
   const [frontDeskToast, setFrontDeskToast] = useState<string | null>(null);
 
   const handleConfirmCancelArrival = () => {
     if (!cancellingArrival) return;
     try {
       pmsService.cancelReservation(cancellingArrival.id, arrivalCancelReason || 'Cancelled at Front Desk Arrivals');
+      setDb(pmsService.getState());
       setFrontDeskToast(`Reservation ${cancellingArrival.reservationNumber} for ${cancellingArrival.guestName} has been cancelled. Room released and removed from Arrivals.`);
       setCancellingArrival(null);
       setTimeout(() => setFrontDeskToast(null), 5000);
     } catch (err: any) {
       setFrontDeskToast(`Failed to cancel: ${err?.message || err}`);
+    }
+  };
+
+  const handleConfirmCancelStay = () => {
+    if (!cancellingStay) return;
+    try {
+      pmsService.cancelCheckIn(cancellingStay.id, stayCancelReason || 'Check-in cancelled at front desk');
+      setDb(pmsService.getState());
+      setFrontDeskToast(`Check-in for Room ${cancellingStay.roomNumber} (${cancellingStay.guestName}) has been cancelled. Room freed & available.`);
+      setCancellingStay(null);
+      setTimeout(() => setFrontDeskToast(null), 5000);
+    } catch (err: any) {
+      setFrontDeskToast(`Failed to cancel check-in: ${err?.message || err}`);
     }
   };
 
@@ -79,12 +98,15 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
 
   // All confirmed / active upcoming reservations (Strictly excludes Cancelled, Checked-In, and Checked-Out)
   const allConfirmed = useMemo(() => 
-    db.reservations.filter(r => 
-      (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
-      r.status !== 'Cancelled' &&
-      r.status !== 'Checked-In' &&
-      r.status !== 'Checked-Out'
-    ),
+    db.reservations.filter(r => {
+      const s = (r.status || '').toLowerCase().trim();
+      const isConfirmed = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+      const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(r.cancellationReason) || Boolean(r.cancelledAt);
+      const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+      const isCheckedOut = s === 'checked-out' || s === 'checkedout';
+      if (isCancelled || isCheckedIn || isCheckedOut) return false;
+      return isConfirmed;
+    }),
     [db.reservations]
   );
 
@@ -902,6 +924,20 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                               <span>Check-Out</span>
                             </button>
 
+                            {/* Cancel Check-In (Undo Check-In) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancellingStay(s);
+                                setStayCancelReason('Guest requested check-in cancellation / room release');
+                              }}
+                              className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 hover:text-amber-800 border border-amber-300 font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+                              title="Cancel Check-In (Releases room & cancels stay)"
+                            >
+                              <RotateCcw className="w-3 h-3 text-amber-600" />
+                              <span className="text-[10px]">Cancel Check-In</span>
+                            </button>
+
                             {/* View Folio */}
                             {folio && (
                               <button
@@ -1129,6 +1165,49 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
               >
                 <XCircle className="w-3.5 h-3.5" />
                 <span>Confirm Cancellation</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Stay Check-In Cancellation Modal */}
+      {cancellingStay && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-xl border border-gray-200 p-5 max-w-md w-full shadow-2xl space-y-3.5 text-xs text-gray-800">
+            <div className="flex items-center space-x-2.5 text-amber-600">
+              <RotateCcw className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-gray-900 text-sm">Cancel Check-In for Room {cancellingStay.roomNumber}?</h4>
+            </div>
+            <p className="text-gray-600 leading-relaxed">
+              Are you sure you want to cancel the check-in for <strong className="text-gray-900 font-semibold">{cancellingStay.guestName}</strong>?
+              Room <span className="font-mono font-bold text-blue-600">{cancellingStay.roomNumber}</span> will be immediately released to <strong>Available & Clean</strong>. This booking will be marked cancelled and will not appear in upcoming check-in queues.
+            </p>
+            <div>
+              <label className="text-[11px] font-bold text-gray-600 block mb-1">Cancellation Reason:</label>
+              <input
+                type="text"
+                value={stayCancelReason}
+                onChange={(e) => setStayCancelReason(e.target.value)}
+                placeholder="e.g. Check-in made by error, guest cancelled reservation"
+                className="w-full bg-gray-50 border border-gray-300 rounded px-2.5 py-1.5 text-gray-900 text-xs focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setCancellingStay(null)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded text-xs transition"
+              >
+                Keep Checked-In
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelStay}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded text-xs transition shadow-xs flex items-center space-x-1"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Confirm Cancel Check-In</span>
               </button>
             </div>
           </div>

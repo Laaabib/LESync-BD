@@ -11,7 +11,7 @@ import {
   Store, Wine, Briefcase, HeartHandshake, UserCheck, Shield,
   Tag, Percent, Gift, Ban, CheckCircle2, Sliders, AlertTriangle, Zap,
   Database, History, Rocket, PanelLeftOpen, PanelLeftClose, ChevronsRight, ChevronsLeft,
-  Fingerprint, Terminal, AlertOctagon
+  Fingerprint, Terminal, AlertOctagon, Compass, ShoppingBag, Eye, EyeOff
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
@@ -19,6 +19,20 @@ import { authService } from '../../services/authService';
 import { adminMasterService } from '../../services/adminMasterService';
 import { MainModuleName } from '../../types/reportingAndRbac';
 import { UserAccountDropdown } from './UserAccountDropdown';
+
+const ICON_MAP: Record<string, React.ElementType> = {
+  LayoutDashboard, ConciergeBell, CalendarDays, CalendarRange,
+  BedDouble, Grid3X3, Layers, Users, Sparkles, Wrench,
+  Building2, PartyPopper, CalendarCheck, Package: PackageIcon, PackageIcon,
+  UtensilsCrossed, Receipt, CreditCard, FileText, BarChart3, BarChart2,
+  Bell, ShieldCheck, Settings, Sliders, CheckSquare, Moon,
+  Palmtree, Landmark, Scale, BookOpen, Boxes, ChefHat, Truck, Trash2,
+  ClipboardList, ShoppingCart, Clock, ArrowUpDown, ArrowRight, Award,
+  DollarSign, Store, Wine, Briefcase, HeartHandshake, UserCheck, Shield,
+  Tag, Percent, Gift, Ban, CheckCircle2, AlertTriangle, Zap,
+  Database, History, Rocket, Fingerprint, Terminal, AlertOctagon,
+  Compass, ShoppingBag, Eye, EyeOff
+};
 
 interface SidebarProps {
   currentRoute: string;
@@ -449,53 +463,97 @@ export const Sidebar: React.FC<SidebarProps> = ({
           currentRoute === 'reports-admin'
         );
       default:
+        if (item.moduleKey && currentRoute.startsWith(item.moduleKey)) return true;
         return currentRoute.startsWith(item.id);
     }
   };
 
-  // Filter nav items by RBAC allowed modules & merge custom sub-menus from adminMasterService
+  // Dynamic Navigation Engine: reads authoritative masterNavModules from adminMasterService
   const masterNavModules = adminMasterService.getNavModules();
   const isSuperAdmin = rbacService.isSuperAdmin(activeUser);
 
-  const allowedNavItems = navItems
-    .filter(item => {
-      // Super Administrator has 100% full access to all PMS modules without exception
+  // Map of static baseline items for icon & metadata fallbacks
+  const defaultNavMap = new Map<string, NavItem>();
+  navItems.forEach(item => {
+    defaultNavMap.set(item.id, item);
+    if (item.moduleKey) defaultNavMap.set(item.moduleKey, item);
+  });
+
+  // Dynamically build allowedNavItems from masterNavModules (including newly added custom modules & custom sub-menus)
+  const allowedNavItems: NavItem[] = (masterNavModules && masterNavModules.length > 0 ? masterNavModules : (navItems as any[]))
+    .filter(m => {
+      // 1. If explicitly hidden by admin in Master Operations Hub, do not render in sidebar
+      if (!m.enabled) return false;
+
+      // 2. Super Administrator has 100% full access to all PMS modules
       if (isSuperAdmin) return true;
-      const masterMod = masterNavModules.find(m => m.id === item.id || m.moduleKey === item.moduleKey);
-      if (masterMod && !masterMod.enabled) return false;
-      return rbacService.isModuleAllowed(item.moduleKey, activeUser);
+
+      // 3. Custom modules created by admin are allowed if active
+      if (m.isCustom) return true;
+
+      // 4. Default modules check RBAC permission
+      return rbacService.isModuleAllowed(m.moduleKey as MainModuleName, activeUser);
     })
-    .map(item => {
-      const masterMod = masterNavModules.find(m => m.id === item.id || m.moduleKey === item.moduleKey);
-      if (!masterMod) return item;
+    .map(m => {
+      const defaultItem = defaultNavMap.get(m.id) || defaultNavMap.get(m.moduleKey);
+      const icon = (m.iconName && ICON_MAP[m.iconName]) || defaultItem?.icon || Sliders;
 
-      // Filter children according to master sub-menu settings
-      let mergedChildren = [...(item.children || [])];
+      // Raw children from masterNavModules
+      const rawChildren = [...(m.children || [])];
 
-      // Add any custom sub-menus created by admin
-      masterMod.children.forEach(sub => {
-        if (!mergedChildren.some(c => c.id === sub.id)) {
-          mergedChildren.push({
-            id: sub.id,
-            label: sub.label,
-            icon: ShieldCheck
-          });
-        }
-      });
-
-      // Filter out disabled sub-menus ONLY for non-super-admin users
-      if (!isSuperAdmin) {
-        mergedChildren = mergedChildren.filter(c => {
-          const subDef = masterMod.children.find(s => s.id === c.id);
-          return subDef ? subDef.enabled : true;
+      // Merge any baseline children if missing from masterMod
+      if (defaultItem?.children) {
+        defaultItem.children.forEach(dc => {
+          if (!rawChildren.some(rc => rc.id === dc.id)) {
+            rawChildren.push({
+              id: dc.id,
+              label: dc.label,
+              iconName: 'FileText',
+              enabled: true,
+              order: 99
+            } as any);
+          }
         });
       }
 
+      // Filter enabled sub-menus, sort by order, and map icons
+      const visibleChildren = rawChildren
+        .filter(sub => sub.enabled !== false)
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(sub => {
+          const subDefaultIcon = defaultItem?.children?.find(c => c.id === sub.id)?.icon;
+          const subIcon = (sub.iconName && ICON_MAP[sub.iconName]) || subDefaultIcon || FileText;
+          return {
+            id: sub.targetRoute || sub.id,
+            label: sub.label,
+            icon: subIcon
+          };
+        });
+
       return {
-        ...item,
-        children: mergedChildren
+        id: m.id,
+        moduleKey: (m.moduleKey || m.id) as MainModuleName,
+        label: m.label,
+        icon: icon,
+        badge: m.badge,
+        badgeColor: m.badgeColor,
+        children: visibleChildren
       };
+    })
+    .sort((a, b) => {
+      const orderA = masterNavModules.find(m => m.id === a.id)?.order ?? 99;
+      const orderB = masterNavModules.find(m => m.id === b.id)?.order ?? 99;
+      return orderA - orderB;
     });
+
+  // Auto-expand module section in sidebar when a sub-menu of that module is active
+  useEffect(() => {
+    allowedNavItems.forEach(item => {
+      if (item.children?.some(c => c.id === currentRoute)) {
+        setOpenSections(prev => prev[item.id] ? prev : ({ ...prev, [item.id]: true }));
+      }
+    });
+  }, [currentRoute, allowedNavItems]);
 
   return (
     <>

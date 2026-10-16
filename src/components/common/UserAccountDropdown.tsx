@@ -474,13 +474,16 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
         <button
           type="button"
           onClick={() => {
-            pmsService.resetToSeed();
-            onClose();
+            if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, check-in rooms, and folios will be vanished and never come back.')) {
+              pmsService.resetToCleanState();
+              onClose();
+              window.location.reload();
+            }
           }}
-          className="w-full text-left px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-200/70 rounded-lg flex items-center gap-2 font-medium transition-colors"
+          className="w-full text-left px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 font-bold transition-colors"
         >
-          <RefreshCw className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-          <span>Reset PMS Database to Default Seed</span>
+          <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+          <span>Reset Data to Clean State (Vanish All Data)</span>
         </button>
 
         <button

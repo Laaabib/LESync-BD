@@ -1,5 +1,12 @@
+process.on('uncaughtException', (err) => {
+  console.error('[Server uncaughtException]:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server unhandledRejection]:', (reason as any)?.message || reason);
+});
+
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+dotenv.config({ override: true, quiet: true });
 
 import express from 'express';
 import http from 'http';

@@ -153,6 +153,12 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
     if (!cancellingRes) return;
     try {
       pmsService.cancelReservation(cancellingRes.id, cancelReason || 'Cancelled from Reservations Desk');
+      setDb(prev => ({
+        ...prev,
+        reservations: prev.reservations.map(r => 
+          r.id === cancellingRes.id ? { ...r, status: 'Cancelled', cancellationReason: cancelReason } : r
+        )
+      }));
       setCancelToast(`Reservation ${cancellingRes.reservationNumber} for ${cancellingRes.guestName} was cancelled successfully. Room released & removed from Check-In queues.`);
       setCancellingRes(null);
       setTimeout(() => setCancelToast(null), 5000);

@@ -86,12 +86,15 @@ export const QuickCheckInDrawer: React.FC<QuickCheckInDrawerProps> = ({
 
   // Pending eligible check-in reservations (Strictly excludes Cancelled, Checked-In, and Checked-Out)
   const eligibleReservations = useMemo(() => {
-    return (db.reservations || []).filter(r => 
-      (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending') &&
-      r.status !== 'Cancelled' &&
-      r.status !== 'Checked-In' &&
-      r.status !== 'Checked-Out'
-    );
+    return (db.reservations || []).filter(r => {
+      const s = (r.status || '').toLowerCase().trim();
+      const isConfirmed = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+      const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(r.cancellationReason) || Boolean(r.cancelledAt);
+      const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+      const isCheckedOut = s === 'checked-out' || s === 'checkedout';
+      if (isCancelled || isCheckedIn || isCheckedOut) return false;
+      return isConfirmed;
+    });
   }, [db.reservations]);
 
   // Update guest ID info whenever selected reservation changes

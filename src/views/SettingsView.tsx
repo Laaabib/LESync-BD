@@ -245,8 +245,8 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   };
 
   const handleResetData = () => {
-    if (window.confirm('Reset database to clean seed state? This will restore initial rooms, bookings, and folios.')) {
-      pmsService.resetToSeed();
+    if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, cancelled check-in rooms, folios, and orders will be permanently vanished and will never come back.')) {
+      pmsService.resetToCleanState();
       window.location.reload();
     }
   };
@@ -1168,15 +1168,15 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
           <h3 className="font-bold text-rose-400 text-sm">Development Database Utilities</h3>
         </div>
         <p className="text-slate-400 text-xs">
-          Reset all rooms, reservations, in-house stays, convention bookings, and folios to default development seed data.
+          Permanently wipes all previous reservations, in-house stays, cancelled check-in rooms, folios, and bills. Sets all 110 rooms to Available & Clean so previous data is vanished and will never come back.
         </p>
         <button
           type="button"
           onClick={handleResetData}
-          className="flex items-center space-x-1.5 px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-bold rounded-xl border border-rose-500/30 transition text-xs"
+          className="flex items-center space-x-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl border border-rose-500 shadow-md transition text-xs cursor-pointer"
         >
           <RotateCcw className="w-4 h-4" />
-          <span>Reset to Clean Seed State</span>
+          <span>Reset Data to Clean State (Vanish All Previous Data)</span>
         </button>
       </div>
     </div>

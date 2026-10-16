@@ -66,11 +66,14 @@ export const RoomAssignmentView: React.FC<RoomAssignmentViewProps> = ({
   const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
 
   // Active reservations that require room assignment or management
-  const activeReservations = db.reservations.filter(r => 
-    (r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending' || r.status === 'Checked-In') &&
-    r.status !== 'Cancelled' &&
-    r.status !== 'Checked-Out'
-  );
+  const activeReservations = db.reservations.filter(r => {
+    const s = (r.status || '').toLowerCase().trim();
+    const isConfirmed = s === 'confirmed' || s === 'unconfirmed' || s === 'pending' || s === 'checked-in';
+    const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(r.cancellationReason) || Boolean(r.cancelledAt);
+    const isCheckedOut = s === 'checked-out' || s === 'checkedout';
+    if (isCancelled || isCheckedOut) return false;
+    return isConfirmed;
+  });
 
   const filteredReservations = activeReservations.filter(res => {
     const matchesSearch = 

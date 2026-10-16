@@ -35,7 +35,7 @@ const SYSTEM_SHORTCUTS: QuickNavigationItem[] = [
   { id: 'nav-banquets', title: 'Convention & Banquet Halls', subtitle: 'Hall bookings, client conferences & gala events', route: 'banquets', icon: PartyPopper, category: 'Events' },
   { id: 'nav-billing', title: 'Cashier, Folios & Billing', subtitle: 'Guest folios, invoices, city ledger & settlements', route: 'cashier-desk', icon: CreditCard, category: 'Finance' },
   { id: 'nav-inventory', title: 'Stores & Central Inventory', subtitle: 'Stock balances, requisitions & GRN warehouse', route: 'inventory-stock', icon: Tag, category: 'Procurement' },
-  { id: 'nav-admin', title: 'Master Operations Hub', subtitle: 'Enterprise configuration, RBAC & system security', route: 'admin-users', icon: ShieldCheck, category: 'Administration' }
+  { id: 'nav-admin', title: 'Master Operations Hub', subtitle: 'Enterprise configuration, RBAC & system security', route: 'admin-master-hub', icon: ShieldCheck, category: 'Administration' }
 ];
 
 interface GlobalSearchModalProps {

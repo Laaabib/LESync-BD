@@ -1065,7 +1065,7 @@ class AdminMasterService {
   // 1. NAVIGATION & SUB-MENUS CONTROLLER
   // =========================================================================
   public getNavModules(): NavModuleDef[] {
-    return this.modules;
+    return JSON.parse(JSON.stringify(this.modules));
   }
 
   public getActiveNavItems() {
@@ -1080,10 +1080,43 @@ class AdminMasterService {
       }));
   }
 
+  public getModuleOrSubMenu(routeOrId: string): { module: NavModuleDef; subMenu?: SubMenuItemDef } | null {
+    if (!routeOrId) return null;
+    const clean = routeOrId.trim().toLowerCase();
+
+    // 1. Check if matching a sub-menu route or ID
+    for (const mod of this.modules) {
+      const foundSub = mod.children.find(c =>
+        c.id.toLowerCase() === clean ||
+        (c.targetRoute && c.targetRoute.toLowerCase() === clean)
+      );
+      if (foundSub) {
+        return { module: mod, subMenu: foundSub };
+      }
+    }
+
+    // 2. Check if matching a parent module ID or moduleKey
+    const foundMod = this.modules.find(m =>
+      m.id.toLowerCase() === clean ||
+      m.moduleKey.toLowerCase() === clean
+    );
+    if (foundMod) {
+      return { module: foundMod };
+    }
+
+    return null;
+  }
+
   public addNavModule(moduleData: Omit<NavModuleDef, 'id' | 'children' | 'isCustom'>): NavModuleDef {
+    const slug = (moduleData.moduleKey || moduleData.label).toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
     const newModule: NavModuleDef = {
       ...moduleData,
-      id: `custom-mod-${Date.now()}`,
+      id: `custom-mod-${slug || Date.now()}`,
+      moduleKey: slug || `custom-${Date.now()}`,
+      label: moduleData.label.trim(),
+      iconName: moduleData.iconName || 'Sliders',
+      enabled: moduleData.enabled !== undefined ? moduleData.enabled : true,
+      order: Number(moduleData.order) || (this.modules.length + 1),
       isCustom: true,
       children: []
     };
@@ -1094,14 +1127,14 @@ class AdminMasterService {
   }
 
   public updateNavModule(id: string, updates: Partial<NavModuleDef>) {
-    this.modules = this.modules.map(m => m.id === id ? { ...m, ...updates } : m);
+    this.modules = this.modules.map(m => (m.id === id || m.moduleKey === id) ? { ...m, ...updates } : m);
     this.saveNavigation();
     pmsService.logAudit('Updated Navigation Module', 'Settings', id, undefined, `Admin updated module: ${id}`);
   }
 
   public deleteNavModule(id: string): boolean {
     const prevLen = this.modules.length;
-    this.modules = this.modules.filter(m => m.id !== id);
+    this.modules = this.modules.filter(m => m.id !== id && m.moduleKey !== id);
     if (this.modules.length < prevLen) {
       this.saveNavigation();
       pmsService.logAudit('Deleted Navigation Module', 'Settings', id, undefined, `Admin deleted module: ${id}`);
@@ -1111,24 +1144,39 @@ class AdminMasterService {
   }
 
   public addSubMenu(parentModuleId: string, subMenuData: Omit<SubMenuItemDef, 'id' | 'isCustom'>): SubMenuItemDef | null {
-    const parent = this.modules.find(m => m.id === parentModuleId);
+    const parent = this.modules.find(m => m.id === parentModuleId || m.moduleKey === parentModuleId);
     if (!parent) return null;
+
+    const routeSlug = subMenuData.targetRoute
+      ? subMenuData.targetRoute.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
+      : subMenuData.label.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
 
     const newSubMenu: SubMenuItemDef = {
       ...subMenuData,
-      id: subMenuData.targetRoute || `sub-${Date.now()}`,
+      id: routeSlug || `sub-${Date.now()}`,
+      targetRoute: routeSlug || undefined,
+      label: subMenuData.label.trim(),
+      iconName: subMenuData.iconName || 'FileText',
+      enabled: subMenuData.enabled !== undefined ? subMenuData.enabled : true,
       isCustom: true,
       order: parent.children.length + 1
     };
 
-    parent.children.push(newSubMenu);
+    // Replace if existing with same id, otherwise push
+    const existingIdx = parent.children.findIndex(c => c.id === newSubMenu.id);
+    if (existingIdx >= 0) {
+      parent.children[existingIdx] = { ...parent.children[existingIdx], ...newSubMenu };
+    } else {
+      parent.children.push(newSubMenu);
+    }
+
     this.saveNavigation();
     pmsService.logAudit('Created Sub-Menu', 'Settings', newSubMenu.id, undefined, `Admin added sub-menu "${newSubMenu.label}" to ${parent.label}`);
     return newSubMenu;
   }
 
   public updateSubMenu(parentModuleId: string, subMenuId: string, updates: Partial<SubMenuItemDef>) {
-    const parent = this.modules.find(m => m.id === parentModuleId);
+    const parent = this.modules.find(m => m.id === parentModuleId || m.moduleKey === parentModuleId);
     if (!parent) return;
 
     parent.children = parent.children.map(c => c.id === subMenuId ? { ...c, ...updates } : c);
@@ -1137,7 +1185,7 @@ class AdminMasterService {
   }
 
   public deleteSubMenu(parentModuleId: string, subMenuId: string): boolean {
-    const parent = this.modules.find(m => m.id === parentModuleId);
+    const parent = this.modules.find(m => m.id === parentModuleId || m.moduleKey === parentModuleId);
     if (!parent) return false;
 
     const prevLen = parent.children.length;
@@ -1151,7 +1199,7 @@ class AdminMasterService {
   }
 
   public toggleSubMenuVisibility(parentModuleId: string, subMenuId: string, enabled: boolean) {
-    const parent = this.modules.find(m => m.id === parentModuleId);
+    const parent = this.modules.find(m => m.id === parentModuleId || m.moduleKey === parentModuleId);
     if (!parent) return;
 
     const target = parent.children.find(c => c.id === subMenuId);
@@ -1163,7 +1211,7 @@ class AdminMasterService {
   }
 
   public toggleModuleVisibility(moduleId: string, enabled: boolean) {
-    const target = this.modules.find(m => m.id === moduleId);
+    const target = this.modules.find(m => m.id === moduleId || m.moduleKey === moduleId);
     if (target) {
       target.enabled = enabled;
       this.saveNavigation();
@@ -1172,7 +1220,7 @@ class AdminMasterService {
   }
 
   public reorderSubMenu(parentModuleId: string, subMenuId: string, direction: 'up' | 'down') {
-    const parent = this.modules.find(m => m.id === parentModuleId);
+    const parent = this.modules.find(m => m.id === parentModuleId || m.moduleKey === parentModuleId);
     if (!parent) return;
 
     const idx = parent.children.findIndex(c => c.id === subMenuId);
@@ -1196,6 +1244,18 @@ class AdminMasterService {
     this.modules = JSON.parse(JSON.stringify(DEFAULT_MODULES));
     this.saveNavigation();
     pmsService.logAudit('Reset Navigation Defaults', 'Settings', 'nav-all', undefined, 'Admin restored original factory navigation setup');
+  }
+
+  public hydrateNavigation(modules: NavModuleDef[]) {
+    if (Array.isArray(modules) && modules.length > 0) {
+      this.modules = JSON.parse(JSON.stringify(modules));
+      try {
+        localStorage.setItem('cculb_admin_navigation_master_v1', JSON.stringify(this.modules));
+      } catch (e) {
+        console.warn('Unable to persist hydrated navigation', e);
+      }
+      this.notify();
+    }
   }
 
   private triggerCloudSync() {

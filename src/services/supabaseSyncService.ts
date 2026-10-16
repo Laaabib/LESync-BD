@@ -550,6 +550,13 @@ class SupabaseSyncService {
           }
         });
       }
+      if (Array.isArray(adm.navigationModules) && adm.navigationModules.length > 0) {
+        try {
+          adminMasterService.hydrateNavigation(adm.navigationModules);
+        } catch (e) {
+          console.warn('Unable to hydrate navigation modules from cloud snapshot', e);
+        }
+      }
     }
   }
 
@@ -599,7 +606,27 @@ class SupabaseSyncService {
         .maybeSingle();
 
       if (!sErr && snapData?.state_payload) {
-        this.applyRestoredState(snapData.state_payload);
+        const localLastSync = typeof window !== 'undefined' ? localStorage.getItem('pms_supabase_last_sync') : null;
+        const cloudLastSync = snapData.last_synced_at;
+        const localState = pmsService.getState();
+        const localHasData = Array.isArray(localState?.reservations) && localState.reservations.length > 0;
+        const isCleanStateActive = typeof window !== 'undefined' && (
+          localStorage.getItem('pms_clean_state_active') === 'true' ||
+          localStorage.getItem('cculb_clean_state_v1') === 'true'
+        );
+
+        if (isCleanStateActive) {
+          // Clean state is active: NEVER restore old bookings/stays from cloud. Sync clean state to cloud instead.
+          const remoteHasOldBookings = Array.isArray(snapData.state_payload?.reservations) && snapData.state_payload.reservations.length > 0;
+          if (remoteHasOldBookings) {
+            this.syncEntirePmsState().catch(() => {});
+          }
+        } else {
+          // Only overwrite local database if local has no data or cloud is strictly newer
+          if (!localHasData || (cloudLastSync && (!localLastSync || cloudLastSync > localLastSync))) {
+            this.applyRestoredState(snapData.state_payload);
+          }
+        }
         if (snapData.last_synced_at) {
           this.currentStatus.lastSyncedAt = snapData.last_synced_at;
           this.currentStatus.snapshotVersion = snapData.version || 1;

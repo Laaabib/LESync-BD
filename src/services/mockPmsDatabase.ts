@@ -114,6 +114,13 @@ export function getTodayString(): string {
 }
 
 export function getSeedPendingReservations(baseDate: string): Reservation[] {
+  if (typeof window !== 'undefined' && (
+    localStorage.getItem('pms_clean_state_active') === 'true' ||
+    localStorage.getItem('cculb_clean_state_v1') === 'true'
+  )) {
+    return [];
+  }
+
   const tomorrow = getOffsetDate(baseDate, 1);
   const dayAfter = getOffsetDate(baseDate, 2);
   const threeDaysLater = getOffsetDate(baseDate, 3);
@@ -129,13 +136,15 @@ export function getSeedPendingReservations(baseDate: string): Reservation[] {
       guestEmail: 'alam.syed@apexholdings.com',
       roomTypeId: 'rt-4',
       roomTypeName: 'Family Deluxe (3 Rooms Allocated)',
-      assignedRoomId: 'rm-202',
-      assignedRoomNumber: '202, 206, 208',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: baseDate,
       departureDate: threeDaysLater,
       adults: 5,
       children: 0,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Corporate',
       rate: 12500,
       depositAmount: 45000,
@@ -159,50 +168,13 @@ export function getSeedPendingReservations(baseDate: string): Reservation[] {
       groupLeaderPhone: '+880 1713-998877',
       totalRoomsCount: 3,
       groupMembers: [
-        { id: 'gm-1', name: 'Syed Ashraful Alam', phone: '+880 1713-998877', isLeader: true, assignedRoomNumber: '202' },
-        { id: 'gm-2', name: 'Tanvir Hossain', phone: '+880 1711-882233', assignedRoomNumber: '206' },
-        { id: 'gm-3', name: 'Dr. Kazi Mahfuzur', phone: '+880 1819-334455', assignedRoomNumber: '208' },
+        { id: 'gm-1', name: 'Syed Ashraful Alam', phone: '+880 1713-998877', isLeader: true },
+        { id: 'gm-2', name: 'Tanvir Hossain', phone: '+880 1711-882233' },
+        { id: 'gm-3', name: 'Dr. Kazi Mahfuzur', phone: '+880 1819-334455' },
         { id: 'gm-4', name: 'Farzana Chowdhury', phone: '+880 1912-556677' },
         { id: 'gm-5', name: 'Rezaul Karim', phone: '+880 1715-443322' }
       ],
-      allocatedRooms: [
-        {
-          id: 'alloc-1',
-          roomTypeId: 'rt-4',
-          roomTypeName: 'Family Deluxe',
-          roomId: 'rm-202',
-          roomNumber: '202',
-          guestName: 'Syed Ashraful Alam',
-          guestPhone: '+880 1713-998877',
-          adults: 2,
-          children: 0,
-          rate: 12500
-        },
-        {
-          id: 'alloc-2',
-          roomTypeId: 'rt-5',
-          roomTypeName: 'Deluxe Room',
-          roomId: 'rm-206',
-          roomNumber: '206',
-          guestName: 'Tanvir Hossain',
-          guestPhone: '+880 1711-882233',
-          adults: 2,
-          children: 0,
-          rate: 8500
-        },
-        {
-          id: 'alloc-3',
-          roomTypeId: 'rt-5',
-          roomTypeName: 'Deluxe Room',
-          roomId: 'rm-208',
-          roomNumber: '208',
-          guestName: 'Dr. Kazi Mahfuzur',
-          guestPhone: '+880 1819-334455',
-          adults: 1,
-          children: 0,
-          rate: 8500
-        }
-      ]
+      allocatedRooms: []
     },
     {
       id: 'res-6',
@@ -212,13 +184,15 @@ export function getSeedPendingReservations(baseDate: string): Reservation[] {
       guestPhone: '+880 1819-456789',
       roomTypeId: 'rt-5',
       roomTypeName: 'Deluxe Room',
-      assignedRoomId: 'rm-103',
-      assignedRoomNumber: '103',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: baseDate,
       departureDate: dayAfter,
       adults: 2,
       children: 0,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Phone / Direct',
       rate: 8500,
       depositAmount: 5000,
@@ -237,13 +211,15 @@ export function getSeedPendingReservations(baseDate: string): Reservation[] {
       guestPhone: '+880 1711-234567',
       roomTypeId: 'rt-4',
       roomTypeName: 'Family Deluxe',
-      assignedRoomId: 'rm-203',
-      assignedRoomNumber: '203',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: baseDate,
       departureDate: threeDaysLater,
       adults: 3,
       children: 1,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Corporate',
       rate: 12500,
       depositAmount: 10000,
@@ -1738,7 +1714,11 @@ export const SEED_ACTIVITY_BOOKINGS: ActivityBooking[] = [
 ];
 
 export function getInitialDatabase(): PmsDatabaseState {
-  const FRESH_PMS_KEY = 'cculb_fresh_pms_v6';
+  const FRESH_PMS_KEY = 'cculb_fresh_pms_v7';
+  const isCleanState = typeof window !== 'undefined' && (
+    localStorage.getItem('pms_clean_state_active') === 'true' ||
+    localStorage.getItem('cculb_clean_state_v1') === 'true'
+  );
   let isFresh = false;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -1772,11 +1752,15 @@ export function getInitialDatabase(): PmsDatabaseState {
 
   let saved: string | null = null;
   try {
-    if (isFresh && typeof window !== 'undefined' && window.localStorage) {
+    if ((isFresh || isCleanState) && typeof window !== 'undefined' && window.localStorage) {
       saved = localStorage.getItem(STORAGE_KEY);
     }
   } catch (e) {
     console.warn('Unable to read PMS database from localStorage:', e);
+  }
+
+  if (isCleanState && !saved) {
+    return createCleanDatabase();
   }
 
   if (saved) {
@@ -1810,6 +1794,83 @@ export function getInitialDatabase(): PmsDatabaseState {
       if (!Array.isArray(parsed.guests)) parsed.guests = [];
       if (!Array.isArray(parsed.guestDocuments)) parsed.guestDocuments = [];
       if (!Array.isArray(parsed.reservations)) parsed.reservations = [];
+      else {
+        // Guarantee that cancelled reservations (Syed Ashraful Alam, Dr. Nusrat Jahan, Engr. Mohammad Rahman) remain Cancelled
+        parsed.reservations.forEach((r: any) => {
+          if (
+            r.id === 'res-group-1' ||
+            r.id === 'res-6' ||
+            r.id === 'res-7' ||
+            r.reservationNumber === 'RES-2026-00460' ||
+            r.reservationNumber === 'RES-2026-00456' ||
+            r.reservationNumber === 'RES-2026-00457' ||
+            (typeof r.reservationNumber === 'string' && (
+              r.reservationNumber.endsWith('00460') ||
+              r.reservationNumber.endsWith('00456') ||
+              r.reservationNumber.endsWith('00457')
+            )) ||
+            (typeof r.guestName === 'string' && (
+              r.guestName.includes('Syed Ashraful Alam') ||
+              r.guestName.includes('Dr. Nusrat Jahan') ||
+              r.guestName.includes('Engr. Mohammad Rahman (Colleague)')
+            ) && r.status !== 'Checked-In')
+          ) {
+            r.status = 'Cancelled';
+            r.cancellationReason = r.cancellationReason || 'Cancelled at Front Desk';
+            r.cancelledAt = r.cancelledAt || new Date().toISOString();
+            r.assignedRoomNumber = undefined;
+            r.assignedRoomId = undefined;
+            if (Array.isArray(r.allocatedRooms)) {
+              r.allocatedRooms = [];
+            }
+          }
+        });
+      }
+      // Release rooms pre-allocated to cancelled bookings so they are Available
+      if (Array.isArray(parsed.rooms)) {
+        parsed.rooms.forEach((rm: any) => {
+          if (rm.operationalStatus === 'Reserved') {
+            const hasActiveBooking = Array.isArray(parsed.reservations) && parsed.reservations.some((r: any) => 
+              (r.status === 'Confirmed' || r.status === 'Unconfirmed' || r.status === 'Pending') &&
+              r.status !== 'Cancelled' &&
+              (r.assignedRoomId === rm.id || r.assignedRoomNumber === rm.roomNumber)
+            );
+            if (!hasActiveBooking) {
+              rm.operationalStatus = 'Available';
+            }
+          }
+          if (rm.operationalStatus === 'Occupied') {
+            const hasActiveStay = Array.isArray(parsed.stays) && parsed.stays.some((s: any) => 
+              s.status === 'Active' &&
+              (s.roomId === rm.id || s.roomNumber === rm.roomNumber)
+            );
+            if (!hasActiveStay) {
+              rm.operationalStatus = 'Available';
+            }
+          }
+        });
+      }
+
+      if (isCleanState) {
+        parsed.reservations = [];
+        parsed.stays = [];
+        parsed.folios = [];
+        parsed.payments = [];
+        parsed.refunds = [];
+        parsed.invoices = [];
+        parsed.restaurantOrders = [];
+        parsed.eventBookings = [];
+        parsed.eventClients = [];
+        parsed.housekeepingTasks = [];
+        parsed.maintenanceTickets = [];
+        if (Array.isArray(parsed.rooms)) {
+          parsed.rooms.forEach((rm: any) => {
+            rm.operationalStatus = 'Available';
+            rm.housekeepingStatus = 'Clean';
+          });
+        }
+      }
+
       if (!Array.isArray(parsed.stays)) parsed.stays = [];
       if (!Array.isArray(parsed.folios)) parsed.folios = [];
       if (!Array.isArray(parsed.payments)) parsed.payments = [];
@@ -1932,29 +1993,9 @@ export function getInitialDatabase(): PmsDatabaseState {
       }
       const curBizDate = parsed.settings.currentBusinessDate;
 
-      const confirmedRes = Array.isArray(parsed.reservations)
-        ? parsed.reservations.filter((r: any) => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending')
-        : [];
-      
-      const todayArrivalsCount = confirmedRes.filter((r: any) => r.arrivalDate === curBizDate).length;
-
-      // If there are NO pending arrivals scheduled for current business date, heal them immediately
-      if (todayArrivalsCount === 0) {
-        if (confirmedRes.length >= 2) {
-          // Realign existing confirmed bookings so at least 2-3 arrive today, and remaining upcoming
-          confirmedRes.forEach((r: any, idx: number) => {
-            const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
-            r.arrivalDate = getOffsetDate(curBizDate, offset);
-            r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
-            r.updatedAt = new Date().toISOString();
-          });
-        } else {
-          // Inject standard seed pending arrivals for today and upcoming dates
-          const seedReservations = getSeedPendingReservations(curBizDate);
-          const existingIds = new Set((parsed.reservations || []).map((r: any) => r.id));
-          const toAdd = seedReservations.filter((r: any) => !existingIds.has(r.id));
-          parsed.reservations = [...(parsed.reservations || []), ...toAdd];
-        }
+      // Only seed initial reservations if the reservations collection is completely empty
+      if (!Array.isArray(parsed.reservations) || parsed.reservations.length === 0) {
+        parsed.reservations = getSeedPendingReservations(curBizDate);
       }
 
       // Also ensure active in-house stays are not all expired/overdue from months ago
@@ -1970,10 +2011,15 @@ export function getInitialDatabase(): PmsDatabaseState {
         }
       }
 
+      saveDatabase(parsed);
       return parsed;
     } catch {
       console.warn('Could not parse saved DB, resetting to defaults');
     }
+  }
+
+  if (isCleanState) {
+    return createCleanDatabase();
   }
 
   // Generate today's realistic operational data dynamically based on the current business date
@@ -1997,13 +2043,15 @@ export function getInitialDatabase(): PmsDatabaseState {
       guestEmail: 'alam.syed@apexholdings.com',
       roomTypeId: 'rt-4',
       roomTypeName: 'Family Deluxe (3 Rooms Allocated)',
-      assignedRoomId: 'rm-202',
-      assignedRoomNumber: '202, 206, 208',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: today,
       departureDate: threeDaysLater,
       adults: 5,
       children: 0,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Corporate',
       rate: 12500,
       depositAmount: 45000,
@@ -2027,50 +2075,13 @@ export function getInitialDatabase(): PmsDatabaseState {
       groupLeaderPhone: '+880 1713-998877',
       totalRoomsCount: 3,
       groupMembers: [
-        { id: 'gm-1', name: 'Syed Ashraful Alam', phone: '+880 1713-998877', isLeader: true, assignedRoomNumber: '202' },
-        { id: 'gm-2', name: 'Tanvir Hossain', phone: '+880 1711-882233', assignedRoomNumber: '206' },
-        { id: 'gm-3', name: 'Dr. Kazi Mahfuzur', phone: '+880 1819-334455', assignedRoomNumber: '208' },
+        { id: 'gm-1', name: 'Syed Ashraful Alam', phone: '+880 1713-998877', isLeader: true },
+        { id: 'gm-2', name: 'Tanvir Hossain', phone: '+880 1711-882233' },
+        { id: 'gm-3', name: 'Dr. Kazi Mahfuzur', phone: '+880 1819-334455' },
         { id: 'gm-4', name: 'Farzana Chowdhury', phone: '+880 1912-556677' },
         { id: 'gm-5', name: 'Rezaul Karim', phone: '+880 1715-443322' }
       ],
-      allocatedRooms: [
-        {
-          id: 'alloc-1',
-          roomTypeId: 'rt-4',
-          roomTypeName: 'Family Deluxe',
-          roomId: 'rm-202',
-          roomNumber: '202',
-          guestName: 'Syed Ashraful Alam',
-          guestPhone: '+880 1713-998877',
-          adults: 2,
-          children: 0,
-          rate: 12500
-        },
-        {
-          id: 'alloc-2',
-          roomTypeId: 'rt-5',
-          roomTypeName: 'Deluxe Room',
-          roomId: 'rm-206',
-          roomNumber: '206',
-          guestName: 'Tanvir Hossain',
-          guestPhone: '+880 1711-882233',
-          adults: 2,
-          children: 0,
-          rate: 8500
-        },
-        {
-          id: 'alloc-3',
-          roomTypeId: 'rt-5',
-          roomTypeName: 'Deluxe Room',
-          roomId: 'rm-208',
-          roomNumber: '208',
-          guestName: 'Dr. Kazi Mahfuzur',
-          guestPhone: '+880 1819-334455',
-          adults: 1,
-          children: 0,
-          rate: 8500
-        }
-      ]
+      allocatedRooms: []
     },
     {
       id: 'res-1',
@@ -2213,13 +2224,15 @@ export function getInitialDatabase(): PmsDatabaseState {
       guestPhone: '+880 1819-456789',
       roomTypeId: 'rt-5',
       roomTypeName: 'Deluxe Room',
-      assignedRoomId: 'rm-103',
-      assignedRoomNumber: '103',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: today,
       departureDate: dayAfter,
       adults: 2,
       children: 0,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Phone / Direct',
       rate: 8500,
       depositAmount: 5000,
@@ -2238,13 +2251,15 @@ export function getInitialDatabase(): PmsDatabaseState {
       guestPhone: '+880 1711-234567',
       roomTypeId: 'rt-4',
       roomTypeName: 'Family Deluxe',
-      assignedRoomId: 'rm-203',
-      assignedRoomNumber: '203',
+      assignedRoomId: undefined,
+      assignedRoomNumber: undefined,
       arrivalDate: today,
       departureDate: threeDaysLater,
       adults: 3,
       children: 1,
-      status: 'Confirmed',
+      status: 'Cancelled',
+      cancellationReason: 'Cancelled at Front Desk',
+      cancelledAt: '2026-08-31T11:00:00Z',
       bookingSource: 'Corporate',
       rate: 12500,
       depositAmount: 10000,
@@ -3380,6 +3395,94 @@ export function getInitialDatabase(): PmsDatabaseState {
     console.warn('Unable to persist PMS initial state to localStorage:', e);
   }
   return state;
+}
+
+export function createCleanDatabase(): PmsDatabaseState {
+  const cleanRooms: Room[] = SEED_ROOMS.map(r => ({
+    ...r,
+    operationalStatus: 'Available' as OperationalStatus,
+    housekeepingStatus: 'Clean' as HousekeepingStatus
+  }));
+
+  const cleanState: PmsDatabaseState = {
+    rooms: cleanRooms,
+    roomTypes: SEED_ROOM_TYPES,
+    floors: SEED_FLOORS,
+    reservations: [],
+    stays: [],
+    guests: [],
+    guestDocuments: [],
+    folios: [],
+    payments: [],
+    refunds: [],
+    invoices: [],
+    housekeepingTasks: [],
+    maintenanceTickets: [],
+    halls: SEED_HALLS,
+    eventClients: [],
+    eventBookings: [],
+    packages: SEED_PACKAGES,
+    quotations: [],
+    menuCategories: SEED_MENU_CATEGORIES,
+    menuItems: SEED_MENU_ITEMS,
+    restaurantOrders: [],
+    rolePermissions: [],
+    users: [...SEED_USERS],
+    activities: [...SEED_ACTIVITIES],
+    activityBookings: [],
+    activityCharges: [],
+    auditLogs: [],
+    auditTrail: [],
+    alerts: [],
+    nightAuditRecords: [],
+    glAccounts: [...SEED_GL_ACCOUNTS],
+    journalVouchers: [],
+    cityLedgerAccounts: [...SEED_CITY_LEDGER_ACCOUNTS],
+    departmentalSyncs: SEED_DEPARTMENTAL_SYNCS.map(d => ({ ...d, totalBills: 0, syncedCount: 0, unmappedCount: 0, syncStatus: 'In Sync' as const })),
+    uoms: SEED_UOMS,
+    inventoryCategories: SEED_INVENTORY_CATEGORIES,
+    warehouses: [...SEED_WAREHOUSES],
+    suppliers: [...SEED_SUPPLIERS],
+    inventoryItems: [...SEED_INVENTORY_ITEMS],
+    inventoryStocks: [...SEED_INVENTORY_STOCKS],
+    itemBatches: [...SEED_BATCHES],
+    stockLedgers: [...SEED_STOCK_LEDGER],
+    purchaseRequests: [],
+    purchaseOrders: [],
+    goodsReceiveNotes: [],
+    purchaseBills: [],
+    supplierPayments: [],
+    purchaseReturns: [],
+    stockTransfers: [],
+    storeIssues: [],
+    wastages: [],
+    physicalStockCounts: [],
+    stockAdjustments: [],
+    serviceChargeRules: SEED_SERVICE_CHARGE_RULES,
+    taxRules: SEED_TAX_RULES,
+    enhancedMenuItems: SEED_ENHANCED_MENU_ITEMS,
+    recipes: SEED_RECIPES,
+    menuModifiers: SEED_MENU_MODIFIERS,
+    menuCombos: SEED_MENU_COMBOS,
+    menuPriceHistories: SEED_PRICE_HISTORIES,
+    settings: {
+      ...DEFAULT_SETTINGS,
+      currentBusinessDate: typeof window !== 'undefined' ? new Date().toISOString().split('T')[0] : '2026-09-24',
+      autoNightAuditEnabled: false
+    },
+    currentUser: SEED_USERS[0]
+  };
+
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanState));
+      localStorage.setItem('pms_clean_state_active', 'true');
+    }
+  } catch (e) {
+    console.warn('Unable to persist clean state to localStorage:', e);
+  }
+
+  return cleanState;
 }
 
 export function saveDatabase(state: PmsDatabaseState) {

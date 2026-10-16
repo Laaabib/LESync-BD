@@ -65,12 +65,122 @@ import { GlobalReportCenterView } from './views/GlobalReportCenterView';
 import { DepartmentalReportsView } from './views/DepartmentalReportsView';
 import { FinanceReportCenterView } from './views/FinanceReportCenterView';
 import { AdminMasterOperationsView } from './views/AdminMasterOperationsView';
+import { CustomModuleView } from './views/CustomModuleView';
 import { QuickMenuBar } from './components/dashboard/QuickMenuBar';
 import { LayoutDashboard, BedDouble, UtensilsCrossed, Sparkles, Menu } from 'lucide-react';
 
+const isStandardRoute = (route: string): boolean => {
+  return (
+    route === 'dashboard' ||
+    route === 'front-desk' ||
+    route === 'front-office' ||
+    route === 'reservations' ||
+    route === 'reservation-calendar' ||
+    route === 'room-assignment' ||
+    route === 'room-status' ||
+    route === 'room-move' ||
+    route === 'guests' ||
+    route === 'front-desk-checkin' ||
+    route === 'front-desk-checkout' ||
+    route === 'front-office-wakeup' ||
+    route === 'housekeeping-dashboard' ||
+    route === 'housekeeping-status' ||
+    route === 'housekeeping-cleaning' ||
+    route === 'housekeeping-requests' ||
+    route === 'housekeeping-lost-found' ||
+    route === 'housekeeping-linen' ||
+    route === 'housekeeping-staff' ||
+    route === 'housekeeping' ||
+    route === 'amenities-master' ||
+    route === 'amenities-issuance' ||
+    route === 'amenities-requests' ||
+    route === 'amenities-billing' ||
+    route === 'amenities' ||
+    route === 'restaurant-pos' ||
+    route === 'restaurant-tables' ||
+    route === 'restaurant-orders' ||
+    route === 'restaurant-kot' ||
+    route === 'restaurant-discounts' ||
+    route === 'restaurant-complimentary' ||
+    route === 'restaurant-voids' ||
+    route === 'restaurant-settlements' ||
+    route === 'restaurant' ||
+    route === 'bar-pos' ||
+    route === 'bar-orders' ||
+    route === 'bar-kot' ||
+    route === 'bar' ||
+    route === 'banquet' ||
+    route === 'convention-events' ||
+    route === 'convention-calendar' ||
+    route === 'convention-packages' ||
+    route === 'banquet-function-sheets' ||
+    route === 'banquet-billing' ||
+    route === 'banquet-deposits' ||
+    route === 'activities' ||
+    route === 'activities-master' ||
+    route === 'activities-booking' ||
+    route === 'activities-scheduling' ||
+    route === 'activities-capacity' ||
+    route === 'activities-billing' ||
+    route.startsWith('procurement') ||
+    route === 'inventory-requisitions' ||
+    route === 'inventory-purchase-orders' ||
+    route === 'inventory-grn' ||
+    route === 'inventory-suppliers' ||
+    route.startsWith('inventory') ||
+    route.startsWith('menu') ||
+    route.startsWith('sales') ||
+    route.startsWith('crm') ||
+    route.startsWith('hr') ||
+    route.startsWith('accounting') ||
+    route.startsWith('finance') ||
+    route.startsWith('billing-') ||
+    route.startsWith('reports') ||
+    route === 'night-audit' ||
+    route === 'night-audit-run' ||
+    route === 'admin-global-reports' ||
+    route === 'admin-audit-registry' ||
+    route === 'alerts' ||
+    route === 'admin-rooms' ||
+    route === 'admin-room-types' ||
+    route === 'admin-floors' ||
+    route === 'room-types' ||
+    route === 'admin-halls' ||
+    route === 'admin-master-hub' ||
+    route === 'admin-menu-master' ||
+    route === 'admin-department-items' ||
+    route === 'admin-billing-options' ||
+    route === 'admin-users' ||
+    route === 'admin-roles' ||
+    route === 'admin-permissions' ||
+    route === 'admin-departments' ||
+    route === 'admin-outlets' ||
+    route === 'admin-approvals' ||
+    route === 'admin-audit' ||
+    route === 'admin-activity-logs' ||
+    route === 'activity-logs' ||
+    route === 'admin-error-finder' ||
+    route === 'error-finder' ||
+    route === 'admin-errors' ||
+    route === 'errors' ||
+    route === 'user-error-finder' ||
+    route === 'admin-tax' ||
+    route === 'admin-service-charge' ||
+    route === 'admin-numbering' ||
+    route === 'admin-onboarding' ||
+    route === 'admin-audit-rules' ||
+    route === 'settings' ||
+    route === 'administration' ||
+    route === 'admin-backup' ||
+    route === 'backup-management' ||
+    route === 'admin-backup-center' ||
+    route === 'admin-sql-console'
+  );
+};
+
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
-  const [db, setDb] = useState<PmsDatabaseState>(pmsService.getState());
+  const [db, setDb] = useState<PmsDatabaseState>(() => pmsService.getState());
   const [activeRoute, setActiveRoute] = useState<string>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -140,6 +250,17 @@ export default function App() {
 
   // Subscribe to service state, initialize Supabase & Multi-Device Realtime Mesh, and Auto Night Audit monitor (06:00 AM)
   useEffect(() => {
+    // Functional update pattern for subscriptions prevents race conditions during component mounting
+    const unsubPms = pmsService.subscribe((updatedDb) => {
+      setDb((prevDb) => updatedDb || prevDb);
+    });
+    const unsubAuth = authService.subscribe((updatedSession) => {
+      setSession((_prevSession) => updatedSession);
+    });
+
+    // Ensure state is updated with the latest PMS state upon mount using functional updater
+    setDb((prevDb) => pmsService.getState() || prevDb);
+
     try {
       cloudSqlSyncService.init();
     } catch (err) {
@@ -162,8 +283,6 @@ export default function App() {
         console.warn('Auto night audit timer non-critical error:', err);
       }
     }, 60000);
-    const unsubPms = pmsService.subscribe(setDb);
-    const unsubAuth = authService.subscribe(setSession);
     const unsubNotices = realtimeSyncService.subscribeNotices((notice) => {
       setResortSyncNotice(notice);
       setTimeout(() => {
@@ -908,6 +1027,14 @@ export default function App() {
               activeRoute === 'admin-backup-center' ||
               activeRoute === 'admin-sql-console') && (
               <BackupManagementView initialTab={activeRoute === 'admin-sql-console' ? 'sql-console' : 'supabase'} />
+            )}
+
+            {/* Custom Navigation Modules & Sub-Menus Created in Master Operations Hub */}
+            {!isStandardRoute(activeRoute) && (
+              <CustomModuleView
+                route={activeRoute}
+                onNavigate={(route) => setActiveRoute(route)}
+              />
             )}
           </div>
         </main>

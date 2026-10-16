@@ -6,7 +6,8 @@ import {
   Download, FileSpreadsheet, UtensilsCrossed, Wine, Sparkles,
   Palmtree, Gift, BedDouble, Check, X, Layers, Tag, DollarSign,
   Smartphone, Landmark, Percent, Clock, Users, ChevronRight,
-  HelpCircle, Shield, Key, AlertCircle, ShoppingBag, RefreshCw, Database
+  HelpCircle, Shield, Key, AlertCircle, ShoppingBag, RefreshCw, Database,
+  ExternalLink, ArrowRight
 } from 'lucide-react';
 import {
   adminMasterService,
@@ -268,6 +269,9 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
       enabled: moduleFormEnabled,
       order: Number(moduleFormOrder) || (navModules.length + 1)
     });
+    // Immediately synchronize local state so the new module appears instantly
+    const allMods = adminMasterService.getNavModules();
+    setNavModules([...allMods]);
     setSelectedModuleId(newMod.id);
     showToast(`Primary Module "${moduleFormLabel}" created successfully!`);
     setIsAddModuleModalOpen(false);
@@ -286,9 +290,30 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
       enabled: moduleFormEnabled,
       order: Number(moduleFormOrder) || editingModule.order
     });
+    const allMods = adminMasterService.getNavModules();
+    setNavModules([...allMods]);
     showToast(`Primary Module "${moduleFormLabel}" updated successfully!`);
     setIsEditModuleModalOpen(false);
     setEditingModule(null);
+  };
+
+  const handleDeleteModule = (mod: NavModuleDef) => {
+    if (!mod) return;
+    if (mod.id === 'dashboard' || mod.id === 'administration') {
+      showToast('Core system modules (Dashboard & Administration) cannot be deleted.');
+      return;
+    }
+    const subCount = mod.children?.length || 0;
+    const msg = `Are you sure you want to delete module "${mod.label}"${subCount > 0 ? ` along with its ${subCount} sub-menu(s)` : ''}? This will immediately remove it from the sidebar navigation and Master Operations Hub.`;
+    if (confirm(msg)) {
+      adminMasterService.deleteNavModule(mod.id);
+      const allMods = adminMasterService.getNavModules();
+      setNavModules([...allMods]);
+      if (selectedModuleId === mod.id || selectedModuleId === mod.moduleKey) {
+        setSelectedModuleId(allMods[0]?.id || 'front-office');
+      }
+      showToast(`Module "${mod.label}" deleted successfully.`);
+    }
   };
 
   const handleOpenAddSubMenu = (parentId?: string) => {
@@ -306,7 +331,7 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
     if (!subMenuFormLabel.trim()) return;
 
     const routeSlug = subMenuFormRoute.trim() || subMenuFormLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    adminMasterService.addSubMenu(subMenuFormParent, {
+    const createdSub = adminMasterService.addSubMenu(subMenuFormParent, {
       label: subMenuFormLabel.trim(),
       iconName: subMenuFormIcon,
       targetRoute: routeSlug,
@@ -316,6 +341,10 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
       order: 99
     });
 
+    // Immediately synchronize local state so the new sub-menu appears instantly
+    const allMods = adminMasterService.getNavModules();
+    setNavModules([...allMods]);
+    setSelectedModuleId(subMenuFormParent);
     showToast(`Sub-menu "${subMenuFormLabel}" added to navigation successfully!`);
     setIsAddSubMenuModalOpen(false);
   };
@@ -342,6 +371,8 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
       badgeColor: subMenuFormBadge.trim() ? subMenuFormBadgeColor : undefined
     });
 
+    const allMods = adminMasterService.getNavModules();
+    setNavModules([...allMods]);
     showToast(`Sub-menu "${subMenuFormLabel}" updated successfully!`);
     setIsEditSubMenuModalOpen(false);
     setEditingSubMenuItem(null);
@@ -350,6 +381,8 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
   const handleDeleteSubMenu = (parentId: string, item: SubMenuItemDef) => {
     if (confirm(`Are you sure you want to delete sub-menu "${item.label}" from navigation?`)) {
       adminMasterService.deleteSubMenu(parentId, item.id);
+      const allMods = adminMasterService.getNavModules();
+      setNavModules([...allMods]);
       showToast(`Sub-menu "${item.label}" deleted.`);
     }
   };
@@ -1004,6 +1037,20 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                       </div>
 
                       <div className="flex items-center space-x-1 shrink-0">
+                        {onNavigate && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const target = m.children.length > 0 ? (m.children[0].targetRoute || m.children[0].id) : m.id;
+                              onNavigate(target);
+                            }}
+                            className="p-1 text-slate-400 hover:text-amber-500 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-md transition cursor-pointer"
+                            title={`Open "${m.label}" in Application`}
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1020,13 +1067,28 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                           onClick={(e) => {
                             e.stopPropagation();
                             adminMasterService.toggleModuleVisibility(m.id, !m.enabled);
-                            showToast(`Module "${m.label}" ${!m.enabled ? 'enabled' : 'hidden'}.`);
+                            const allMods = adminMasterService.getNavModules();
+                            setNavModules([...allMods]);
+                            showToast(`Module "${m.label}" ${!m.enabled ? 'enabled in sidebar' : 'hidden from sidebar'}.`);
                           }}
                           className={`p-1 rounded-md transition cursor-pointer ${m.enabled ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30' : 'text-slate-400 hover:bg-slate-200'}`}
                           title={m.enabled ? 'Module Active in Sidebar' : 'Module Hidden'}
                         >
                           {m.enabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-rose-400" />}
                         </button>
+                        {m.id !== 'dashboard' && m.id !== 'administration' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteModule(m);
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition cursor-pointer"
+                            title={`Delete Module "${m.label}"`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <ChevronRight className={`w-3.5 h-3.5 ${isSelected ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
                       </div>
                     </div>
@@ -1068,11 +1130,22 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
 
                   <button
                     onClick={() => handleOpenAddSubMenu(currentModule?.id)}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-indigo-600/20 transition"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-md shadow-indigo-600/20 transition cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add Sub-Menu</span>
                   </button>
+
+                  {currentModule && currentModule.id !== 'dashboard' && currentModule.id !== 'administration' && (
+                    <button
+                      onClick={() => handleDeleteModule(currentModule)}
+                      className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                      title={`Delete "${currentModule.label}" and all its sub-menus`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Module</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1154,16 +1227,25 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                           </td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end space-x-1.5">
+                              {onNavigate && (
+                                <button
+                                  onClick={() => onNavigate(sub.targetRoute || sub.id)}
+                                  className="p-1.5 text-slate-500 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-lg transition cursor-pointer"
+                                  title={`Open "${sub.label}" in Application`}
+                                >
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleOpenEditSubMenu(currentModule.id, sub)}
-                                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition"
+                                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition cursor-pointer"
                                 title="Edit Sub-Menu"
                               >
                                 <Edit3 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handleDeleteSubMenu(currentModule.id, sub)}
-                                className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
+                                className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
                                 title="Delete Sub-Menu"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -1926,20 +2008,38 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                 </label>
               </div>
 
-              <div className="pt-2 flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => { setIsAddModuleModalOpen(false); setIsEditModuleModalOpen(false); }}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
-                >
-                  {isEditModuleModalOpen ? 'Save Module' : 'Create Module'}
-                </button>
+              <div className="pt-2 flex items-center justify-between">
+                {isEditModuleModalOpen && editingModule && editingModule.id !== 'dashboard' && editingModule.id !== 'administration' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editingModule) {
+                        setIsEditModuleModalOpen(false);
+                        handleDeleteModule(editingModule);
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 rounded-xl font-bold cursor-pointer transition-colors flex items-center space-x-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Module</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => { setIsAddModuleModalOpen(false); setIsEditModuleModalOpen(false); }}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
+                  >
+                    {isEditModuleModalOpen ? 'Save Module' : 'Create Module'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1992,16 +2092,43 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Route Slug / Target Route</label>
-                <input
-                  type="text"
-                  placeholder="e.g. vip-lounges"
-                  value={subMenuFormRoute}
-                  disabled={isEditSubMenuModalOpen}
-                  onChange={e => setSubMenuFormRoute(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-[11px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Route Slug / Target Route</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. vip-lounges"
+                    value={subMenuFormRoute}
+                    disabled={isEditSubMenuModalOpen}
+                    onChange={e => setSubMenuFormRoute(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono text-[11px] text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Sub-Menu Icon</label>
+                  <select
+                    value={subMenuFormIcon}
+                    onChange={e => setSubMenuFormIcon(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-colors"
+                  >
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="FileText">FileText / Document</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Sliders">Sliders / Controls</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Layers">Layers / Sub-system</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="ShieldCheck">Shield / Security</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Users">Users / Staff</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="BedDouble">Bed / Room Ops</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="UtensilsCrossed">Dining / Food</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="CreditCard">Card / Payment</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Receipt">Receipt / Folio</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Clock">Clock / Schedule</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Sparkles">Sparkles / VIP</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Tag">Tag / Label</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="CalendarDays">Calendar / Booking</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Gift">Gift / Amenity</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="Palmtree">Palm / Recreation</option>
+                    <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value="BarChart3">BarChart / Reports</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
