@@ -1948,9 +1948,30 @@ export function getInitialDatabase(): PmsDatabaseState {
         );
       }
 
-      if (!Array.isArray(parsed.glAccounts) || parsed.glAccounts.length === 0) parsed.glAccounts = SEED_GL_ACCOUNTS;
+      if (!Array.isArray(parsed.glAccounts) || parsed.glAccounts.length === 0) {
+        parsed.glAccounts = isCleanState
+          ? SEED_GL_ACCOUNTS.map(a => ({ ...a, balance: 0, openingBalance: 0 }))
+          : SEED_GL_ACCOUNTS;
+      } else if (isCleanState) {
+        parsed.glAccounts.forEach((a: any) => {
+          if (a) {
+            a.balance = 0;
+            a.openingBalance = 0;
+          }
+        });
+      }
       if (!Array.isArray(parsed.journalVouchers)) parsed.journalVouchers = [];
-      if (!Array.isArray(parsed.cityLedgerAccounts) || parsed.cityLedgerAccounts.length === 0) parsed.cityLedgerAccounts = [...SEED_CITY_LEDGER_ACCOUNTS];
+      else if (isCleanState) parsed.journalVouchers = [];
+
+      if (!Array.isArray(parsed.cityLedgerAccounts) || parsed.cityLedgerAccounts.length === 0) {
+        parsed.cityLedgerAccounts = isCleanState
+          ? SEED_CITY_LEDGER_ACCOUNTS.map(c => ({ ...c, currentBalance: 0 }))
+          : [...SEED_CITY_LEDGER_ACCOUNTS];
+      } else if (isCleanState) {
+        parsed.cityLedgerAccounts.forEach((c: any) => {
+          if (c) c.currentBalance = 0;
+        });
+      }
       if (!Array.isArray(parsed.departmentalSyncs) || parsed.departmentalSyncs.length === 0) parsed.departmentalSyncs = SEED_DEPARTMENTAL_SYNCS;
       if (!Array.isArray(parsed.activityCharges)) parsed.activityCharges = [];
       if (!Array.isArray(parsed.activities) || parsed.activities.length === 0) parsed.activities = [...SEED_ACTIVITIES];
@@ -3435,14 +3456,24 @@ export function createCleanDatabase(): PmsDatabaseState {
     auditTrail: [],
     alerts: [],
     nightAuditRecords: [],
-    glAccounts: [...SEED_GL_ACCOUNTS],
+    glAccounts: SEED_GL_ACCOUNTS.map(a => ({
+      ...a,
+      balance: 0,
+      openingBalance: 0
+    })),
     journalVouchers: [],
-    cityLedgerAccounts: [...SEED_CITY_LEDGER_ACCOUNTS],
+    cityLedgerAccounts: SEED_CITY_LEDGER_ACCOUNTS.map(c => ({
+      ...c,
+      currentBalance: 0
+    })),
     departmentalSyncs: SEED_DEPARTMENTAL_SYNCS.map(d => ({ ...d, totalBills: 0, syncedCount: 0, unmappedCount: 0, syncStatus: 'In Sync' as const })),
     uoms: SEED_UOMS,
     inventoryCategories: SEED_INVENTORY_CATEGORIES,
     warehouses: [...SEED_WAREHOUSES],
-    suppliers: [...SEED_SUPPLIERS],
+    suppliers: SEED_SUPPLIERS.map(s => ({
+      ...s,
+      outstandingBalance: 0
+    })),
     inventoryItems: [...SEED_INVENTORY_ITEMS],
     inventoryStocks: [...SEED_INVENTORY_STOCKS],
     itemBatches: [...SEED_BATCHES],

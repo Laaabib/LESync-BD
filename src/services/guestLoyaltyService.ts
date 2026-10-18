@@ -533,6 +533,10 @@ class GuestLoyaltyService {
   }
 
   private loadState() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      this.members = [...INITIAL_MEMBERS];
+      return;
+    }
     try {
       const stored = localStorage.getItem(this.STORAGE_KEY);
       if (stored) {
@@ -550,6 +554,7 @@ class GuestLoyaltyService {
   }
 
   private saveState() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.members));
     } catch (e) {

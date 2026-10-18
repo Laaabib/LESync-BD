@@ -219,10 +219,19 @@ class SupabaseSyncService {
       this.pendingChanges = true;
       this.scheduleDebouncedSync(2000);
     });
-    adminMasterService.subscribe(() => {
-      this.pendingChanges = true;
-      this.scheduleDebouncedSync(2000);
-    });
+    // Defer adminMasterService subscription to avoid circular initialization TDZ
+    setTimeout(() => {
+      try {
+        if (typeof adminMasterService !== 'undefined' && adminMasterService?.subscribe) {
+          adminMasterService.subscribe(() => {
+            this.pendingChanges = true;
+            this.scheduleDebouncedSync(2000);
+          });
+        }
+      } catch (err) {
+        console.warn('Deferred adminMasterService subscription notice:', err);
+      }
+    }, 50);
   }
 
   private scheduleDebouncedSync(delayMs = 3000): void {

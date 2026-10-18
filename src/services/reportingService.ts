@@ -1087,16 +1087,18 @@ class ReportingService {
   private customReports: ReportDefinition[] = [];
 
   constructor() {
-    const saved = localStorage.getItem('cculb_report_logs_v1');
-    if (saved) {
+    if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        this.executionLogs = JSON.parse(saved);
+        const saved = localStorage.getItem('cculb_report_logs_v1');
+        if (saved) {
+          this.executionLogs = JSON.parse(saved);
+        }
       } catch (e) {}
-    }
-    const savedCustom = localStorage.getItem('cculb_custom_reports_v1');
-    if (savedCustom) {
       try {
-        this.customReports = JSON.parse(savedCustom);
+        const savedCustom = localStorage.getItem('cculb_custom_reports_v1');
+        if (savedCustom) {
+          this.customReports = JSON.parse(savedCustom);
+        }
       } catch (e) {}
     }
   }
@@ -2429,7 +2431,11 @@ class ReportingService {
     };
     this.executionLogs.unshift(executionLog);
     if (this.executionLogs.length > 100) this.executionLogs.pop();
-    localStorage.setItem('cculb_report_logs_v1', JSON.stringify(this.executionLogs));
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('cculb_report_logs_v1', JSON.stringify(this.executionLogs));
+      } catch (e) {}
+    }
 
     return {
       definition: report,

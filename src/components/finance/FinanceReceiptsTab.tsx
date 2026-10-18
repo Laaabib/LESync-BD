@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText, Search, Download, Printer, CheckCircle2,
   Building, User, DollarSign, Calendar, Eye
@@ -7,7 +7,12 @@ import { pmsService } from '../../services/pmsService';
 import { Payment } from '../../types/pms';
 
 export const FinanceReceiptsTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
@@ -93,7 +98,17 @@ export const FinanceReceiptsTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {payments.map(p => (
+              {payments.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-gray-400">
+                    <FileText className="w-8 h-8 mx-auto mb-2 text-gray-300 stroke-[1.5]" />
+                    <p className="font-semibold text-gray-600">No money receipts recorded</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      All account transaction BDT amounts and receipt records are currently set to 0.00 ৳.
+                    </p>
+                  </td>
+                </tr>
+              ) : payments.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="py-3 px-4 font-mono font-bold text-indigo-950">
                     {p.transactionNumber || `MR-${p.id.slice(0, 8)}`}

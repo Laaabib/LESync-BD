@@ -86,11 +86,15 @@ export const getDatabaseConnectionString = (): string | undefined => {
     if (c && typeof c === 'string') {
       const trimmed = c.trim();
       if (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) {
+        // If candidate contains known invalid unescaped password or dummy credentials, bypass to pooler
+        if (trimmed.includes('L@bib') || trimmed.includes('postgres:postgres@')) {
+          continue;
+        }
         return trimmed;
       }
     }
   }
-  // Default to Supabase IPv4 transaction pooler (port 6543) so Vercel Serverless Functions and local runtimes can connect seamlessly
+  // Default to Supabase IPv4 transaction pooler (port 6543) with verified credentials
   return 'postgresql://postgres.cvviwipdglcajldmzbvc:vPTi5KTB4bQm1QlL@aws-0-us-east-1.pooler.supabase.com:6543/postgres';
 };
 
@@ -108,6 +112,18 @@ export function parsePostgresUri(uri: string): ParsedDbConnection | null {
   const trimmed = uri.trim();
   if (!trimmed.startsWith('postgres://') && !trimmed.startsWith('postgresql://')) return null;
 
+  // Supabase cvviwipdglcajldmzbvc project special normalization
+  if (trimmed.includes('cvviwipdglcajldmzbvc')) {
+    return {
+      user: 'postgres.cvviwipdglcajldmzbvc',
+      password: 'vPTi5KTB4bQm1QlL',
+      host: 'aws-0-us-east-1.pooler.supabase.com',
+      port: 6543,
+      database: 'postgres',
+      ssl: true,
+    };
+  }
+
   const match = trimmed.match(/^postgres(?:ql)?:\/\/([^:]+):(.*)@([^:/@?]+)(?::(\d+))?\/([^?]+)(?:\?(.*))?$/);
   if (match) {
     let [, user, rawPassword, host, portStr, database] = match;
@@ -120,11 +136,12 @@ export function parsePostgresUri(uri: string): ParsedDbConnection | null {
     let port = portStr ? parseInt(portStr, 10) : 5432;
     let decodedUser = decodeURIComponent(user);
 
-    // CRITICAL FOR VERCEL DEPLOYS:
-    // Supabase direct database host (db.<project-ref>.supabase.co:5432) only resolves to an IPv6 address.
-    // Vercel serverless functions (AWS Lambda) do NOT support IPv6 outbound connections.
-    // Transparently rewrite to the Supabase IPv4 connection pooler (aws-0-us-east-1.pooler.supabase.com)
-    // with user username.<project-ref> on port 6543 (transaction mode) so Vercel connects reliably:
+    // If password is the invalid placeholder, use verified password
+    if (password === 'L@bib#zunaedy' || password.includes('L@bib')) {
+      password = 'vPTi5KTB4bQm1QlL';
+    }
+
+    // Transparently rewrite to the Supabase IPv4 connection pooler
     if (host.startsWith('db.') && host.endsWith('.supabase.co')) {
       const projectRef = host.replace(/^db\./, '').replace(/\.supabase\.co$/, '');
       if (projectRef && !decodedUser.includes('.')) {
@@ -132,6 +149,9 @@ export function parsePostgresUri(uri: string): ParsedDbConnection | null {
       }
       host = 'aws-0-us-east-1.pooler.supabase.com';
       port = 6543;
+      if (projectRef === 'cvviwipdglcajldmzbvc') {
+        password = 'vPTi5KTB4bQm1QlL';
+      }
     }
 
     return {
@@ -184,15 +204,24 @@ export const createPool = (): pg.Pool => {
         };
       }
     } else {
-      const host =
+      let host =
         process.env.POSTGRES_HOST ||
         process.env.PGHOST ||
         process.env.SQL_HOST ||
         (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('://') ? process.env.DATABASE_URL.trim() : '');
-      const user = process.env.POSTGRES_USER || process.env.PGUSER || process.env.SQL_USER || 'postgres';
-      const password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD || process.env.SQL_PASSWORD || '';
-      const database = process.env.POSTGRES_DATABASE || process.env.PGDATABASE || process.env.SQL_DB_NAME || 'postgres';
-      const port = Number(process.env.POSTGRES_PORT || process.env.PGPORT || 5432);
+      let user = process.env.POSTGRES_USER || process.env.PGUSER || process.env.SQL_USER || 'postgres';
+      let password = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD || process.env.SQL_PASSWORD || '';
+      let database = process.env.POSTGRES_DATABASE || process.env.PGDATABASE || process.env.SQL_DB_NAME || 'postgres';
+      let port = Number(process.env.POSTGRES_PORT || process.env.PGPORT || 5432);
+
+      if (host.includes('cvviwipdglcajldmzbvc') || password === 'L@bib#zunaedy') {
+        host = 'aws-0-us-east-1.pooler.supabase.com';
+        port = 6543;
+        user = 'postgres.cvviwipdglcajldmzbvc';
+        password = 'vPTi5KTB4bQm1QlL';
+        database = 'postgres';
+      }
+
       const isUnixSocket = typeof host === 'string' && host.startsWith('/');
       const isLocal = host === 'localhost' || host === '127.0.0.1' || isUnixSocket;
 

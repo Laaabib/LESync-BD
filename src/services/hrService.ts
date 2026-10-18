@@ -383,6 +383,13 @@ class HrService {
   }
 
   private loadFromStorage(): void {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      this.employees = [...INITIAL_EMPLOYEES];
+      this.leaves = [...INITIAL_LEAVES];
+      this.attendance = [...INITIAL_ATTENDANCE];
+      this.departments = [...INITIAL_DEPARTMENTS];
+      return;
+    }
     try {
       const storedEmp = localStorage.getItem(EMPLOYEES_STORAGE_KEY);
       this.employees = storedEmp ? JSON.parse(storedEmp) : [...INITIAL_EMPLOYEES];
@@ -404,19 +411,31 @@ class HrService {
   }
 
   private saveEmployees(): void {
-    localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(this.employees));
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(this.employees));
+    } catch {}
   }
 
   private saveLeaves(): void {
-    localStorage.setItem(LEAVE_STORAGE_KEY, JSON.stringify(this.leaves));
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      localStorage.setItem(LEAVE_STORAGE_KEY, JSON.stringify(this.leaves));
+    } catch {}
   }
 
   private saveAttendance(): void {
-    localStorage.setItem(ATTENDANCE_STORAGE_KEY, JSON.stringify(this.attendance));
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      localStorage.setItem(ATTENDANCE_STORAGE_KEY, JSON.stringify(this.attendance));
+    } catch {}
   }
 
   private saveDepartments(): void {
-    localStorage.setItem(DEPARTMENTS_STORAGE_KEY, JSON.stringify(this.departments));
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      localStorage.setItem(DEPARTMENTS_STORAGE_KEY, JSON.stringify(this.departments));
+    } catch {}
   }
 
   // --- EMPLOYEES ---

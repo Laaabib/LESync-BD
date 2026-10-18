@@ -376,7 +376,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'admin-numbering', label: 'Numbering Schemes', icon: Tag },
         { id: 'admin-audit-rules', label: 'Night Audit Automation Schedule', icon: Clock },
         { id: 'settings', label: 'System Settings', icon: Settings },
-        { id: 'admin-backup', label: 'Supabase Cloud Database', icon: Database },
+        { id: 'admin-backup', label: 'Manual Backup & Restore (.bak)', icon: Database },
+        { id: 'admin-auto-backup', label: '3x Daily Auto-Backup (IIS/Server)', icon: Clock },
         { id: 'admin-sql-console', label: 'Supabase SQL Console', icon: Terminal },
         { id: 'admin-audit', label: 'User Activity Logs', icon: History },
         { id: 'admin-error-finder', label: 'User Error Finder & Diagnostics', icon: AlertOctagon }

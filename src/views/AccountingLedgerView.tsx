@@ -5,7 +5,8 @@ import {
   DollarSign, ArrowUpRight, ArrowDownRight, ChevronRight,
   ChevronDown, ShieldCheck, CreditCard, Receipt, Clock,
   FileText, Check, AlertCircle, Sparkles, Layers, Users,
-  ShoppingCart, Percent, BarChart3, Download, LayoutDashboard, Lock, Play, Database
+  ShoppingCart, Percent, BarChart3, Download, LayoutDashboard, Lock, Play, Database,
+  RotateCcw
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import {
@@ -270,6 +271,16 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
     }
   };
 
+  const handleResetAllAccounts = () => {
+    if (window.confirm('Are you sure you want to reset all accounts? All transaction BDT balances, debits, credits, and journal vouchers will be reset to 0.00 BDT while keeping your Chart of Accounts structure intact.')) {
+      pmsService.resetAllAccountBalances();
+      setFeedbackMsg({
+        type: 'success',
+        text: 'All account transaction balances, vouchers, and BDT amounts have been successfully reset to 0.00 BDT.'
+      });
+    }
+  };
+
   const handleAddCityLedgerAccount = (e: React.FormEvent) => {
     e.preventDefault();
     if (!clCompanyName || !clContactPerson || !clPhone) {
@@ -446,6 +457,14 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
           >
             <Layers className="w-4 h-4" />
             New Account Head
+          </button>
+          <button
+            onClick={handleResetAllAccounts}
+            className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Reset All Account Balances & Transactions to 0.00 BDT"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+            Reset All Accounts (0 BDT)
           </button>
         </div>
       </div>
@@ -653,14 +672,22 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={exportGL}
-                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1.5"
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   Export COA
                 </button>
                 <button
+                  onClick={handleResetAllAccounts}
+                  className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 flex items-center gap-1.5 cursor-pointer"
+                  title="Reset All Account Balances & Transactions to 0.00 BDT"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                  Reset All Accounts (0 BDT)
+                </button>
+                <button
                   onClick={() => setIsAddAccountModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-900 hover:bg-indigo-950 rounded-lg shadow-xs flex items-center gap-1.5"
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-900 hover:bg-indigo-950 rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   New Account Head
@@ -821,14 +848,22 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
             <div className="flex items-center gap-2">
               <button
                 onClick={exportJV}
-                className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export Vouchers
               </button>
               <button
+                onClick={handleResetAllAccounts}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 flex items-center gap-1.5 cursor-pointer"
+                title="Reset All Accounts & Vouchers to 0.00 BDT"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                Reset All Accounts (0 BDT)
+              </button>
+              <button
                 onClick={() => setIsNewJvModalOpen(true)}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-900 hover:bg-indigo-950 rounded-lg shadow-xs flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-900 hover:bg-indigo-950 rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Create Manual Voucher

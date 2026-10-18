@@ -437,6 +437,7 @@ export const pmsService = {
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem('pms_clean_state_active', 'true');
       localStorage.setItem('cculb_clean_state_v1', 'true');
+      localStorage.setItem('cculb_accounting_reset_v1', 'true');
       localStorage.removeItem('pms_supabase_last_sync');
       localStorage.removeItem('pms_cloudsql_last_sync');
       localStorage.removeItem('pms_supabase_last_error');
@@ -450,6 +451,43 @@ export const pmsService = {
       r.operationalStatus = 'Available';
       r.housekeepingStatus = 'Clean';
     });
+    // Ensure all General Ledger Accounts and Sub-Ledgers have 0.00 BDT transaction balances
+    if (Array.isArray(state.glAccounts)) {
+      state.glAccounts = state.glAccounts.map(a => ({
+        ...a,
+        balance: 0,
+        openingBalance: 0
+      }));
+    }
+    state.journalVouchers = [];
+    if (Array.isArray(state.cityLedgerAccounts)) {
+      state.cityLedgerAccounts = state.cityLedgerAccounts.map(c => ({
+        ...c,
+        currentBalance: 0
+      }));
+    }
+    if (Array.isArray(state.suppliers)) {
+      state.suppliers = state.suppliers.map(s => ({
+        ...s,
+        outstandingBalance: 0,
+        currentPayableBalance: 0
+      }));
+    }
+    state.payments = [];
+    state.refunds = [];
+    state.invoices = [];
+    state.supplierPayments = [];
+    state.purchaseBills = [];
+
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('cculb_cashbank_reset_v1', 'true');
+      }
+      import('./accountingEngineService').then(({ accountingEngineService }) => {
+        accountingEngineService.resetAllTransactions();
+      }).catch(() => {});
+    } catch {}
+
     saveDatabase(state);
     notify();
 
@@ -462,6 +500,83 @@ export const pmsService = {
       }).catch(() => {});
     } catch {}
 
+    return state;
+  },
+
+  resetAllAccountBalances() {
+    if (!state.glAccounts) state.glAccounts = [];
+    state.glAccounts = state.glAccounts.map(a => ({
+      ...a,
+      balance: 0,
+      openingBalance: 0
+    }));
+    state.journalVouchers = [];
+    if (Array.isArray(state.cityLedgerAccounts)) {
+      state.cityLedgerAccounts = state.cityLedgerAccounts.map(c => ({
+        ...c,
+        currentBalance: 0
+      }));
+    }
+    if (Array.isArray(state.suppliers)) {
+      state.suppliers = state.suppliers.map(s => ({
+        ...s,
+        outstandingBalance: 0,
+        currentPayableBalance: 0
+      }));
+    }
+    if (Array.isArray(state.departmentalSyncs)) {
+      state.departmentalSyncs = state.departmentalSyncs.map(d => ({
+        ...d,
+        totalBills: 0,
+        totalVolume: 0,
+        totalRevenuePosted: 0,
+        syncedCount: 0,
+        unmappedCount: 0,
+        syncStatus: 'In Sync' as const,
+        lastSyncTime: new Date().toISOString()
+      }));
+    }
+
+    // Reset all operational financial transaction records and BDTs
+    state.payments = [];
+    state.refunds = [];
+    state.invoices = [];
+    state.supplierPayments = [];
+    if (Array.isArray(state.purchaseBills)) {
+      state.purchaseBills = state.purchaseBills.map(b => ({
+        ...b,
+        paidAmount: 0,
+        dueAmount: 0,
+        totalAmount: 0,
+        subtotal: 0,
+        taxAmount: 0,
+        discountAmount: 0,
+        status: 'Draft' as const
+      }));
+    }
+
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('cculb_accounting_reset_v1', 'true');
+        localStorage.setItem('cculb_cashbank_reset_v1', 'true');
+      }
+      import('./accountingEngineService').then(({ accountingEngineService }) => {
+        accountingEngineService.resetAllTransactions();
+      }).catch(() => {});
+    } catch {}
+
+    saveDatabase(state);
+    notify();
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(err => {
+          console.warn('[Supabase] Sync notice for reset accounts:', err?.message || err);
+        });
+      }).catch(() => {});
+    } catch {}
+
+    this.logAudit('Reset All Accounts', 'Accounts', 'gl-all', undefined, 'All GL account balances, transaction vouchers, money receipts, payments, and ledger transaction BDT amounts reset to 0.00 BDT');
     return state;
   },
 
@@ -5721,6 +5836,23 @@ export const pmsService = {
     return header + JSON.stringify(payload, null, 2);
   },
 
+  downloadBakArchive(filename?: string): void {
+    if (typeof window === 'undefined') return;
+    const content = this.exportFullBakContent();
+    const curBiz = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const name = filename || `LESYNC_PMS_DATABASE_${curBiz}_${Date.now()}.bak`;
+    const blob = new Blob([content], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    this.logAudit('Exported Backup', 'Settings', 'MANUAL_BACKUP', undefined, `Downloaded enterprise .bak archive ${name}`);
+  },
+
   parseBakContent(content: string): any {
     if (!content || typeof content !== 'string') {
       throw new Error('Backup file is empty.');
@@ -5808,6 +5940,26 @@ export const pmsService = {
       }
     }
 
+    // Clear clean state flags from localStorage so restored operations remain active
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem('pms_clean_state_active');
+      localStorage.removeItem('cculb_clean_state_v1');
+      localStorage.removeItem('cculb_accounting_reset_v1');
+      localStorage.removeItem('cculb_cashbank_reset_v1');
+    }
+
+    saveDatabase(state);
+    notify();
+
+    // Trigger immediate cloud synchronization of the restored state to Supabase
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(err => {
+          console.warn('[Supabase] Sync notice for restored state:', err?.message || err);
+        });
+      }).catch(() => {});
+    } catch {}
+
     const roomsCount = (state.rooms || []).length;
     const resCount = (state.reservations || []).length;
     const foliosCount = (state.folios || []).length;
@@ -5816,12 +5968,11 @@ export const pmsService = {
     const invoicesCount = (state.invoices || []).length;
 
     this.logAudit('Restored Full Backup', 'Settings', 'MANUAL_RESTORE', undefined, `Restored database snapshot created at ${payload.metadata?.exportedAt || 'Unknown'}`);
-    this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios).`);
-    notify();
+    this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios) and synced to Supabase Cloud.`);
 
     return {
       success: true,
-      message: 'Database backup restored successfully into active local state & synced.',
+      message: 'Database backup restored successfully into active local state & synced to Supabase Cloud.',
       details: {
         rooms: roomsCount,
         reservations: resCount,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CreditCard, Search, Download, CheckCircle2,
   DollarSign, Landmark, Smartphone, Building2, Calendar
@@ -8,7 +8,12 @@ import { Payment } from '../../types/pms';
 import * as XLSX from 'xlsx';
 
 export const FinancePaymentsTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [methodFilter, setMethodFilter] = useState<string>('All');
 
@@ -151,7 +156,17 @@ export const FinancePaymentsTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {payments.map(p => (
+              {payments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
+                    <CreditCard className="w-8 h-8 mx-auto mb-2 text-gray-300 stroke-[1.5]" />
+                    <p className="font-semibold text-gray-600">No payment transactions recorded</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      All account transaction BDT amounts are currently set to 0.00 ৳. New guest folio settlements and money receipts will populate here automatically.
+                    </p>
+                  </td>
+                </tr>
+              ) : payments.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50/70 transition-colors">
                   <td className="py-3 px-4 font-mono font-bold text-indigo-950">
                     {p.transactionNumber || `RCP-${p.id.slice(0, 8)}`}

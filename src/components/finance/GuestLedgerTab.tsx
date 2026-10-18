@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Receipt, Search, Download, CheckCircle2, AlertTriangle,
   Clock, BedDouble, User, CreditCard, ChevronRight, DollarSign
@@ -7,7 +7,12 @@ import { pmsService } from '../../services/pmsService';
 import * as XLSX from 'xlsx';
 
 export const GuestLedgerTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Open' | 'Settled'>('All');
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layers, Search, CheckCircle2, Play, RefreshCw,
   Scale, ShieldCheck, ArrowRight, BookOpen, Sparkles, Check
@@ -164,7 +164,12 @@ const DEFAULT_RULES: MappingRule[] = [
 ];
 
 export const AccountingMappingTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [rules, setRules] = useState<MappingRule[]>(DEFAULT_RULES);
   const [search, setSearch] = useState('');
 

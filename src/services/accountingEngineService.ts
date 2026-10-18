@@ -235,6 +235,26 @@ class AccountingEngineService {
     this.listeners.forEach(fn => fn());
   }
 
+  public resetAllTransactions(): void {
+    this.transactions = [];
+    this.auditTrail = [];
+    this.allocations = [];
+    this.sequenceTracker = {
+      je: 100,
+      ar: 50,
+      ap: 45,
+      rec: 120,
+      pay: 80,
+      txn: 250
+    };
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('cculb_accounting_reset_v1', 'true');
+      }
+    } catch {}
+    this.notify();
+  }
+
   // ============================================================================
   // 49. DATABASE GENERATED SEQUENCES
   // ============================================================================
@@ -1219,6 +1239,18 @@ class AccountingEngineService {
   // INITIAL SEED HISTORICAL TRANSACTIONS
   // ============================================================================
   private initHistoricalState() {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (
+        localStorage.getItem('pms_clean_state_active') === 'true' ||
+        localStorage.getItem('cculb_clean_state_v1') === 'true' ||
+        localStorage.getItem('cculb_accounting_reset_v1') === 'true'
+      ) {
+        this.transactions = [];
+        this.auditTrail = [];
+        this.allocations = [];
+        return;
+      }
+    }
     // Generate initial realistic accounting transactions matching the resort's operational history
     const seedTxns: Parameters<typeof this.postTransaction>[0][] = [
       {

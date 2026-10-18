@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Building2, Search, Plus, DollarSign, Download,
   CheckCircle2, Clock, AlertTriangle, ShieldCheck, ChevronRight,
@@ -17,7 +17,12 @@ export const AccountsReceivableTab: React.FC<AccountsReceivableTabProps> = ({
   onOpenPaymentModal,
   onOpenNewAccountModal
 }) => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Suspended'>('All');
   const [selectedAccount, setSelectedAccount] = useState<CityLedgerAccount | null>(null);

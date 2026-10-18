@@ -172,6 +172,7 @@ const isStandardRoute = (route: string): boolean => {
     route === 'settings' ||
     route === 'administration' ||
     route === 'admin-backup' ||
+    route === 'admin-auto-backup' ||
     route === 'backup-management' ||
     route === 'admin-backup-center' ||
     route === 'admin-sql-console'
@@ -1023,10 +1024,14 @@ export default function App() {
 
             {/* Dedicated Supabase Cloud Database & Replication Center */}
             {(activeRoute === 'admin-backup' ||
+              activeRoute === 'admin-auto-backup' ||
               activeRoute === 'backup-management' ||
               activeRoute === 'admin-backup-center' ||
               activeRoute === 'admin-sql-console') && (
-              <BackupManagementView initialTab={activeRoute === 'admin-sql-console' ? 'sql-console' : 'supabase'} />
+              <BackupManagementView initialTab={
+                activeRoute === 'admin-sql-console' ? 'sql-console' :
+                activeRoute === 'admin-auto-backup' ? 'auto-backup' : 'manual-backup'
+              } />
             )}
 
             {/* Custom Navigation Modules & Sub-Menus Created in Master Operations Hub */}

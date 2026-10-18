@@ -73,6 +73,9 @@ const DEFAULT_STATE: HousekeepingState = {
 };
 
 function loadState(): HousekeepingState {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return DEFAULT_STATE;
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
@@ -103,6 +106,7 @@ let state: HousekeepingState = loadState();
 const listeners: Set<(state: HousekeepingState) => void> = new Set();
 
 function saveState() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (err) {

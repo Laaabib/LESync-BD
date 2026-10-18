@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users, Search, Download, CheckCircle2, ChevronRight,
   Phone, Mail, MapPin, DollarSign, FileText, ShoppingCart
@@ -8,12 +8,17 @@ import { Supplier } from '../../types/pms';
 import * as XLSX from 'xlsx';
 
 export const SupplierLedgerTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
 
   const getCategory = (s: Supplier) => s.categoriesSupplied?.[0] || 'General Vendor';
-  const getBalance = (s: Supplier) => s.currentPayableBalance || 0;
+  const getBalance = (s: Supplier) => s.currentPayableBalance || (s as any).outstandingBalance || 0;
   const getStatus = (s: Supplier) => s.active ? 'Active' : 'Inactive';
 
   const suppliers = (db.suppliers || []).filter(s => {

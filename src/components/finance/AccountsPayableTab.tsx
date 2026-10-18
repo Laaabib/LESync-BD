@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingCart, Search, Plus, CheckCircle2, AlertTriangle,
   Clock, ShieldCheck, Download, ChevronRight, FileText, Check, DollarSign
@@ -8,7 +8,12 @@ import { PurchaseBill } from '../../types/pms';
 import * as XLSX from 'xlsx';
 
 export const AccountsPayableTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Paid' | 'Partially Paid'>('All');
   const [selectedBill, setSelectedBill] = useState<PurchaseBill | null>(null);

@@ -474,7 +474,7 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
         <button
           type="button"
           onClick={() => {
-            if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, check-in rooms, and folios will be vanished and never come back.')) {
+            if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
               pmsService.resetToCleanState();
               onClose();
               window.location.reload();
@@ -483,7 +483,7 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
           className="w-full text-left px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 font-bold transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-          <span>Reset Data to Clean State (Vanish All Data)</span>
+          <span>Reset Data to Clean State (Vanish All Data & 0 BDT)</span>
         </button>
 
         <button

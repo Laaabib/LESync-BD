@@ -568,6 +568,22 @@ class SalesMarketingService {
   }
 
   private loadState(): SalesMarketingState {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return {
+        corporateDetails: {
+          'cla-1': { discountPct: 25, industry: 'Telecommunications', accountManager: 'Kamran Chowdhury', contractNumber: 'CTR-2026-104', totalRoomNights: 184, totalRevenue: 1850000 },
+          'cla-2': { discountPct: 20, industry: 'Banking & Financial Services', accountManager: 'Kamran Chowdhury', contractNumber: 'CTR-2026-112', totalRoomNights: 92, totalRevenue: 980000 },
+          'cla-3': { discountPct: 15, industry: 'Pharmaceuticals & Healthcare', accountManager: 'Nusrat Jahan', contractNumber: 'CTR-2026-089', totalRoomNights: 78, totalRevenue: 820000 },
+          'cla-4': { discountPct: 10, industry: 'Apparel & Ready Made Garments', accountManager: 'Nusrat Jahan', contractNumber: 'CTR-2026-045', totalRoomNights: 45, totalRevenue: 490000 }
+        },
+        travelAgents: INITIAL_AGENTS,
+        salesActivities: INITIAL_ACTIVITIES,
+        leads: INITIAL_LEADS,
+        contracts: INITIAL_CONTRACTS,
+        promotions: this.sanitizePromotions(INITIAL_PROMOTIONS),
+        agentPayouts: []
+      };
+    }
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -607,6 +623,7 @@ class SalesMarketingService {
   }
 
   private saveState(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
     } catch (e) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DollarSign, Landmark, Smartphone, Search, Plus,
   CheckCircle2, AlertTriangle, ArrowRightLeft, RefreshCw,
@@ -24,21 +24,39 @@ interface CashBankTabProps {
 }
 
 export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }) => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [selectedAcc, setSelectedAcc] = useState<string>('acc-1');
   const [isReconModalOpen, setIsReconModalOpen] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // Bank & Cash accounts setup
+  // Check if financial accounts have been reset to zero BDT
+  const gl1010 = db.glAccounts?.find(a => a.code === '1010')?.balance ?? 0;
+  const gl1020 = db.glAccounts?.find(a => a.code === '1020')?.balance ?? 0;
+  const gl1015 = db.glAccounts?.find(a => a.code === '1015')?.balance ?? 0;
+  const gl1025 = db.glAccounts?.find(a => a.code === '1025')?.balance ?? 0;
+
+  const isReset = (gl1010 === 0 && gl1020 === 0 && gl1015 === 0 && gl1025 === 0) ||
+    (typeof window !== 'undefined' && (
+      localStorage.getItem('cculb_accounting_reset_v1') === 'true' ||
+      localStorage.getItem('cculb_cashbank_reset_v1') === 'true' ||
+      localStorage.getItem('pms_clean_state_active') === 'true'
+    ));
+
+  // Dynamically derive bank & cash accounts setup linked to GL accounts
   const accounts: BankAccountInfo[] = [
     {
       id: 'acc-1',
       name: 'Dutch-Bangla Bank Ltd (DBBL)',
       accountNumber: '115.120.0094812',
       type: 'Bank',
-      glCode: '1020',
-      bookBalance: 4850000,
-      statementBalance: 4850000,
+      glCode: '1010',
+      bookBalance: isReset ? 0 : Math.round(gl1010 * 0.475),
+      statementBalance: isReset ? 0 : Math.round(gl1010 * 0.475),
       unreconciledItems: 0,
       currency: 'BDT'
     },
@@ -47,10 +65,10 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       name: 'City Bank Ltd - Corporate CD',
       accountNumber: '310.229.440192',
       type: 'Bank',
-      glCode: '1020',
-      bookBalance: 3200000,
-      statementBalance: 3185000,
-      unreconciledItems: 2,
+      glCode: '1010',
+      bookBalance: isReset ? 0 : Math.round(gl1010 * 0.315),
+      statementBalance: isReset ? 0 : Math.round(gl1010 * 0.315),
+      unreconciledItems: isReset ? 0 : 2,
       currency: 'BDT'
     },
     {
@@ -58,9 +76,9 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       name: 'BRAC Bank - Operations',
       accountNumber: '150.120.339100',
       type: 'Bank',
-      glCode: '1020',
-      bookBalance: 2150000,
-      statementBalance: 2150000,
+      glCode: '1010',
+      bookBalance: isReset ? 0 : Math.round(gl1010 * 0.21),
+      statementBalance: isReset ? 0 : Math.round(gl1010 * 0.21),
       unreconciledItems: 0,
       currency: 'BDT'
     },
@@ -69,9 +87,9 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       name: 'Front Office Cash Float & Safe Vault',
       accountNumber: 'CASH-VAULT-01',
       type: 'Cash',
-      glCode: '1010',
-      bookBalance: 450000,
-      statementBalance: 450000,
+      glCode: '1020',
+      bookBalance: isReset ? 0 : gl1020,
+      statementBalance: isReset ? 0 : gl1020,
       unreconciledItems: 0,
       currency: 'BDT'
     },
@@ -81,8 +99,8 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       accountNumber: 'PETTY-FLOAT-01',
       type: 'Cash',
       glCode: '1015',
-      bookBalance: 50000,
-      statementBalance: 50000,
+      bookBalance: isReset ? 0 : (gl1015 || 50000),
+      statementBalance: isReset ? 0 : (gl1015 || 50000),
       unreconciledItems: 0,
       currency: 'BDT'
     },
@@ -92,8 +110,8 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       accountNumber: '01713-456789',
       type: 'MFS',
       glCode: '1025',
-      bookBalance: 680000,
-      statementBalance: 680000,
+      bookBalance: isReset ? 0 : (gl1025 ? Math.round(gl1025 * 0.68) : 680000),
+      statementBalance: isReset ? 0 : (gl1025 ? Math.round(gl1025 * 0.68) : 680000),
       unreconciledItems: 0,
       currency: 'BDT'
     },
@@ -103,8 +121,8 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
       accountNumber: '01819-998877',
       type: 'MFS',
       glCode: '1025',
-      bookBalance: 320000,
-      statementBalance: 320000,
+      bookBalance: isReset ? 0 : (gl1025 ? Math.round(gl1025 * 0.32) : 320000),
+      statementBalance: isReset ? 0 : (gl1025 ? Math.round(gl1025 * 0.32) : 320000),
       unreconciledItems: 0,
       currency: 'BDT'
     }
@@ -115,13 +133,15 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
   const totalCash = accounts.filter(a => a.type === 'Cash').reduce((sum, a) => sum + a.bookBalance, 0);
   const totalMfs = accounts.filter(a => a.type === 'MFS').reduce((sum, a) => sum + a.bookBalance, 0);
 
-  // Bank reconciliation mock items
+  // Bank reconciliation items (cleared when accounts are reset)
   const [reconItems, setReconItems] = useState([
     { id: 'rc-1', date: '2026-08-30', ref: 'DEP-8891', desc: 'Guest Advance Deposit - Dutch-Bangla', amount: 45000, type: 'Credit', matched: true },
     { id: 'rc-2', date: '2026-08-31', ref: 'POS-7712', desc: 'City Bank POS Settlement Batch #41', amount: 15000, type: 'Credit', matched: false },
     { id: 'rc-3', date: '2026-08-31', ref: 'CHQ-0019', desc: 'Vendor Payment - Meghna Agro Supplies', amount: -28000, type: 'Debit', matched: true },
     { id: 'rc-4', date: '2026-08-31', ref: 'BNK-CHG', desc: 'Bank Service Charges & Excise Duty', amount: -2500, type: 'Debit', matched: false }
   ]);
+
+  const activeReconItems = isReset ? [] : reconItems;
 
   const handleToggleMatch = (id: string) => {
     setReconItems(prev => prev.map(item => item.id === id ? { ...item, matched: !item.matched } : item));
@@ -291,7 +311,13 @@ export const CashBankTab: React.FC<CashBankTabProps> = ({ onOpenNewAccountHead }
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {reconItems.map(item => (
+                    {activeReconItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-gray-400">
+                          All bank and cash accounts are clean & reconciled (0.00 BDT).
+                        </td>
+                      </tr>
+                    ) : activeReconItems.map(item => (
                       <tr key={item.id} className={item.matched ? 'bg-emerald-50/30' : ''}>
                         <td className="py-2.5 px-3 text-gray-600">{item.date}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-indigo-950">{item.ref}</td>

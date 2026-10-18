@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Percent, Search, Download, CheckCircle2, AlertTriangle,
   FileText, Calendar, Building, DollarSign, ArrowUpRight
@@ -7,7 +7,12 @@ import { pmsService } from '../../services/pmsService';
 import * as XLSX from 'xlsx';
 
 export const TaxesTab: React.FC = () => {
-  const db = pmsService.getState();
+  const [db, setDb] = useState(() => pmsService.getState());
+
+  useEffect(() => {
+    return pmsService.subscribe(setDb);
+  }, []);
+
   const [selectedPeriod, setSelectedPeriod] = useState<string>('August 2026');
 
   // Derive tax metrics

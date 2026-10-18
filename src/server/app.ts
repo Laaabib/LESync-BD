@@ -31,6 +31,7 @@ import {
   SEED_CITY_LEDGER_ACCOUNTS,
   SEED_SUPPLIERS
 } from '../services/mockPmsDatabase.ts';
+import { backupService } from './backupService.ts';
 
 // Broadcast hook for optional WebSocket or multi-client fan-out (registered by server.ts if running)
 type BroadcastHook = (senderWs: any, payload: any) => void;
@@ -609,6 +610,79 @@ export function createApp(): express.Express {
     } catch (error: any) {
       console.error('SQL console query error:', error?.message || error);
       res.status(500).json({ success: false, error: error?.message || 'SQL execution failed' });
+    }
+  });
+
+  // 10.5. Automated 3x Daily Backups & Windows Server / IIS Integration
+  app.get(['/api/backup/schedule', '/backup/schedule'], (req, res) => {
+    try {
+      const schedule = backupService.getScheduleConfig();
+      res.json({ success: true, schedule });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to get schedule' });
+    }
+  });
+
+  app.post(['/api/backup/trigger', '/backup/trigger'], async (req, res) => {
+    try {
+      const { triggerType = 'manual', clientState } = req.body || {};
+      const metadata = await backupService.createBackup(triggerType, clientState);
+      res.json({
+        success: true,
+        message: `Database backup created successfully: ${metadata.filename}`,
+        backup: metadata
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to create backup' });
+    }
+  });
+
+  app.get(['/api/backup/files', '/backup/files'], (req, res) => {
+    try {
+      const files = backupService.listBackupFiles();
+      res.json({ success: true, files, count: files.length });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to list backup files' });
+    }
+  });
+
+  app.get(['/api/backup/download/:filename', '/backup/download/:filename'], (req, res) => {
+    try {
+      const { filename } = req.params;
+      const content = backupService.readBackupFileContent(filename);
+      if (!content) {
+        return res.status(404).json({ success: false, error: 'Backup file not found' });
+      }
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.send(content);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to download backup' });
+    }
+  });
+
+  app.get(['/api/backup/content/:filename', '/backup/content/:filename'], (req, res) => {
+    try {
+      const { filename } = req.params;
+      const content = backupService.readBackupFileContent(filename);
+      if (!content) {
+        return res.status(404).json({ success: false, error: 'Backup file not found' });
+      }
+
+      res.json({ success: true, filename, rawContent: content });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to read backup content' });
+    }
+  });
+
+  app.get(['/api/backup/iis-script', '/backup/iis-script'], (req, res) => {
+    try {
+      const hostUrl = `${req.protocol}://${req.get('host')}`;
+      const scripts = backupService.generateWindowsIisScript(hostUrl);
+      res.json({ success: true, scripts, hostUrl });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || 'Failed to generate IIS script' });
     }
   });
 

@@ -245,9 +245,19 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   };
 
   const handleResetData = () => {
-    if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, cancelled check-in rooms, folios, and orders will be permanently vanished and will never come back.')) {
+    if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, cancelled check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
       pmsService.resetToCleanState();
       window.location.reload();
+    }
+  };
+
+  const handleResetAllAccountsOnly = () => {
+    if (window.confirm('Reset all financial accounts? All General Ledger balances, journal vouchers, and transaction BDT amounts will be reset to 0.00 BDT, while preserving room inventory and staff logins.')) {
+      pmsService.resetAllAccountBalances();
+      setBackupMessage({ type: 'success', text: 'All account transaction balances, vouchers, and BDT amounts have been successfully reset to 0.00 BDT.' });
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
     }
   };
 
@@ -289,7 +299,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
             type="button"
             onClick={() => {
               setActiveTab(t.id);
-              if (onNavigate) onNavigate(t.route);
+              if (onNavigate && t.id !== 'backup') onNavigate(t.route);
             }}
             className={`px-3.5 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors text-xs ${
               activeTab === t.id ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'text-slate-400 hover:text-slate-200'
@@ -1168,16 +1178,27 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
           <h3 className="font-bold text-rose-400 text-sm">Development Database Utilities</h3>
         </div>
         <p className="text-slate-400 text-xs">
-          Permanently wipes all previous reservations, in-house stays, cancelled check-in rooms, folios, and bills. Sets all 110 rooms to Available & Clean so previous data is vanished and will never come back.
+          Permanently wipes operational and financial data or selectively resets financial ledgers. Sets all 110 rooms to Available & Clean, zeroes out all account transaction BDT balances, and vanishes previous data.
         </p>
-        <button
-          type="button"
-          onClick={handleResetData}
-          className="flex items-center space-x-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl border border-rose-500 shadow-md transition text-xs cursor-pointer"
-        >
-          <RotateCcw className="w-4 h-4" />
-          <span>Reset Data to Clean State (Vanish All Previous Data)</span>
-        </button>
+        <div className="flex flex-wrap gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleResetData}
+            className="flex items-center space-x-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl border border-rose-500 shadow-md transition text-xs cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Reset Data to Clean State (Vanish All Data & 0 BDT Balances)</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleResetAllAccountsOnly}
+            className="flex items-center space-x-1.5 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl border border-amber-500 shadow-md transition text-xs cursor-pointer"
+            title="Zero out all General Ledger balances and vouchers without wiping room inventory"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Reset All Accounts & Transaction BDTs to 0.00 ৳</span>
+          </button>
+        </div>
       </div>
     </div>
   );

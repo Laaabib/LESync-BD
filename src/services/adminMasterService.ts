@@ -996,6 +996,14 @@ class AdminMasterService {
   }
 
   private init() {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      this.modules = JSON.parse(JSON.stringify(DEFAULT_MODULES));
+      this.billingOptions = JSON.parse(JSON.stringify(DEFAULT_BILLING_OPTIONS));
+      this.departmentItems = JSON.parse(JSON.stringify(SEED_DEPARTMENT_ITEMS));
+      this.syncActivities();
+      return;
+    }
+
     // Load navigation
     try {
       const savedNav = localStorage.getItem('cculb_admin_navigation_master_v1');
@@ -1269,10 +1277,12 @@ class AdminMasterService {
   }
 
   private saveNavigation() {
-    try {
-      localStorage.setItem('cculb_admin_navigation_master_v1', JSON.stringify(this.modules));
-    } catch (e) {
-      console.warn('Unable to persist navigation config', e);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('cculb_admin_navigation_master_v1', JSON.stringify(this.modules));
+      } catch (e) {
+        console.warn('Unable to persist navigation config', e);
+      }
     }
     this.notify();
     this.triggerCloudSync();
@@ -1329,10 +1339,12 @@ class AdminMasterService {
   }
 
   private saveBillingOptions() {
-    try {
-      localStorage.setItem('cculb_admin_billing_options_v1', JSON.stringify(this.billingOptions));
-    } catch (e) {
-      console.warn('Unable to persist billing options', e);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('cculb_admin_billing_options_v1', JSON.stringify(this.billingOptions));
+      } catch (e) {
+        console.warn('Unable to persist billing options', e);
+      }
     }
     this.notify();
     this.triggerCloudSync();
@@ -1555,10 +1567,12 @@ class AdminMasterService {
   }
 
   private saveDepartmentItems() {
-    try {
-      localStorage.setItem('cculb_admin_dept_items_v1', JSON.stringify(this.departmentItems));
-    } catch (e) {
-      console.warn('Unable to persist departmental items', e);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('cculb_admin_dept_items_v1', JSON.stringify(this.departmentItems));
+      } catch (e) {
+        console.warn('Unable to persist departmental items', e);
+      }
     }
     this.notify();
     this.triggerCloudSync();
