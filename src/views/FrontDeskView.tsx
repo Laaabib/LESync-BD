@@ -3,11 +3,14 @@ import {
   ConciergeBell, LogIn, LogOut, BedDouble, Users, ArrowRightLeft,
   Receipt, FileText, Search, PlusCircle, Printer, Filter, ShieldCheck,
   ShieldAlert, Lock, Unlock, AlertTriangle, X, CheckCircle2, Info,
-  Zap, Clock, Calendar, Sparkles, AlertCircle, Check, XCircle, RotateCcw
+  Zap, Clock, Calendar, Sparkles, AlertCircle, Check, XCircle, RotateCcw,
+  Edit3, Trash2
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { PmsDatabaseState, getOffsetDate } from '../services/mockPmsDatabase';
 import { Stay, Reservation, Room } from '../types/pms';
+import { EditReservationModal } from '../components/drawers/EditReservationModal';
+import { DeleteReservationModal } from '../components/drawers/DeleteReservationModal';
 
 interface FrontDeskViewProps {
   onOpenCheckIn: (reservationId?: string) => void;
@@ -46,6 +49,8 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
   // Arrivals cancellation state
   const [cancellingArrival, setCancellingArrival] = useState<Reservation | null>(null);
   const [arrivalCancelReason, setArrivalCancelReason] = useState<string>('Guest requested cancellation at front desk');
+  const [editingArrival, setEditingArrival] = useState<Reservation | null>(null);
+  const [deletingArrival, setDeletingArrival] = useState<Reservation | null>(null);
 
   // In-house stay check-in cancellation state
   const [cancellingStay, setCancellingStay] = useState<Stay | null>(null);
@@ -110,9 +115,9 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
     [db.reservations]
   );
 
-  // Today's upcoming arrivals (scheduled for today or past due)
+  // Today's upcoming arrivals (strictly scheduled for today's business date)
   const todaysArrivals = useMemo(() => {
-    return allConfirmed.filter(r => r.arrivalDate === todayStr || r.arrivalDate < todayStr);
+    return allConfirmed.filter(r => r.arrivalDate === todayStr);
   }, [allConfirmed, todayStr]);
 
   const tomorrowArrivals = useMemo(() => {
@@ -397,7 +402,10 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg border border-gray-200">
             {/* Arrivals Tab */}
             <button
-              onClick={() => setActiveTab('arrivals')}
+              onClick={() => {
+                setActiveTab('arrivals');
+                setArrivalFilter('today');
+              }}
               className={`px-3.5 py-1.5 rounded-md font-bold text-xs transition-colors flex items-center space-x-2 ${
                 activeTab === 'arrivals'
                   ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -405,7 +413,7 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
               }`}
             >
               <LogIn className="w-3.5 h-3.5" />
-              <span>Upcoming Check-Ins</span>
+              <span>Upcoming Check-Ins (Today)</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
                 activeTab === 'arrivals' ? 'bg-slate-950 text-amber-300' : 'bg-gray-200 text-gray-700'
               }`}>
@@ -678,14 +686,19 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setCancellingArrival(res);
-                              setArrivalCancelReason('Guest requested cancellation at front desk');
-                            }}
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="Cancel this arrival reservation"
+                            onClick={() => setEditingArrival(res)}
+                            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors border border-gray-200 hover:border-cyan-300"
+                            title="Edit Reservation Details (Dates, Room, Rate, Guest)"
                           >
-                            <XCircle className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingArrival(res)}
+                            className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-gray-200 hover:border-rose-300"
+                            title="Cancel or Permanently Delete Reservation"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -1212,6 +1225,34 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Reservation Modal for Arrivals */}
+      {editingArrival && (
+        <EditReservationModal
+          isOpen={Boolean(editingArrival)}
+          reservation={editingArrival}
+          onClose={() => setEditingArrival(null)}
+          onSuccess={(updated) => {
+            setFrontDeskToast(`Reservation ${updated.reservationNumber} for ${updated.guestName} updated successfully.`);
+            setDb(pmsService.getState());
+            setTimeout(() => setFrontDeskToast(null), 5000);
+          }}
+        />
+      )}
+
+      {/* Delete / Cancel Reservation Modal for Arrivals */}
+      {deletingArrival && (
+        <DeleteReservationModal
+          isOpen={Boolean(deletingArrival)}
+          reservation={deletingArrival}
+          onClose={() => setDeletingArrival(null)}
+          onSuccess={(actionType, message) => {
+            setFrontDeskToast(message);
+            setDb(pmsService.getState());
+            setTimeout(() => setFrontDeskToast(null), 5000);
+          }}
+        />
       )}
 
       {/* Front Desk Toast Notification */}

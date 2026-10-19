@@ -100,27 +100,30 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
   const reservationsByRoom = useMemo(() => {
     const map = new Map<string, any>();
     for (const res of db.reservations || []) {
-      const isPending = res.status === 'Confirmed' || res.status === 'Unconfirmed' || (res.status as string) === 'Pending';
-      if (isPending && (res.arrivalDate === todayStr || res.arrivalDate <= todayStr)) {
-        if (res.assignedRoomNumber) {
-          const numbers = res.assignedRoomNumber.split(',').map((s: string) => s.trim());
-          for (const num of numbers) {
-            if (num) map.set(num, res);
-          }
+      const s = (res.status || '').toLowerCase().trim();
+      const isConfirmed = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+      const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(res.cancellationReason) || Boolean(res.cancelledAt);
+      const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+      if (!isConfirmed || isCancelled || isCheckedIn) continue;
+
+      if (res.assignedRoomNumber) {
+        const numbers = res.assignedRoomNumber.split(',').map((s: string) => s.trim());
+        for (const num of numbers) {
+          if (num) map.set(num, res);
         }
-        if (res.assignedRoomId) {
-          map.set(res.assignedRoomId, res);
-        }
-        if (Array.isArray(res.allocatedRooms)) {
-          for (const alloc of res.allocatedRooms) {
-            if (alloc.roomNumber) map.set(alloc.roomNumber, res);
-            if (alloc.roomId) map.set(alloc.roomId, res);
-          }
+      }
+      if (res.assignedRoomId) {
+        map.set(res.assignedRoomId, res);
+      }
+      if (Array.isArray(res.allocatedRooms)) {
+        for (const alloc of res.allocatedRooms) {
+          if (alloc.roomNumber) map.set(alloc.roomNumber, res);
+          if (alloc.roomId) map.set(alloc.roomId, res);
         }
       }
     }
     return map;
-  }, [db.reservations, todayStr]);
+  }, [db.reservations]);
 
   const allGuests = useMemo(() => {
     const map = new Map<string, any>();
@@ -188,15 +191,18 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
       return stay && stay.expectedCheckOutAt && stay.expectedCheckOutAt.startsWith(todayStr);
     });
 
-    // 5. Vacant Dirty
+    // 5. Vacant Dirty (unoccupied and unreserved)
     const vacantDirty = rooms.filter(
       r => r.operationalStatus !== 'Occupied' &&
+           r.operationalStatus !== 'Reserved' &&
+           !reservationsByRoom.has(r.roomNumber) &&
            (r.operationalStatus === 'Dirty' || r.housekeepingStatus === 'Dirty')
     );
 
     // 6. Reserve / Reserved
     const reserve = rooms.filter(
-      r => r.operationalStatus === 'Reserved' || reservationsByRoom.has(r.roomNumber)
+      r => (r.operationalStatus === 'Reserved' || reservationsByRoom.has(r.roomNumber)) &&
+           r.operationalStatus !== 'Occupied'
     );
 
     // 7. Out of order (OOO)
@@ -450,6 +456,24 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
         actionBorder: 'border-blue-300'
       };
     }
+    if (isReserved) {
+      return {
+        bg: 'bg-amber-100/95 border-2 border-amber-600 hover:border-amber-800 shadow-sm',
+        numberColor: 'text-slate-950 font-black',
+        numberBadge: 'bg-slate-950 text-white border-2 border-slate-700 font-black shadow-xs ring-1 ring-black/30',
+        typeColor: 'text-amber-900 font-bold',
+        floorColor: 'text-amber-800 font-mono font-bold',
+        floorBadge: 'bg-amber-200/80 text-amber-900 border border-amber-300/80 font-bold',
+        dividerColor: 'border-amber-300',
+        statusNoteColor: 'text-amber-950 font-black',
+        badgeBg: 'bg-amber-600 text-white font-black shadow-xs ring-1 ring-amber-500',
+        shortLabel: 'RES',
+        label: 'RESERVED',
+        fullLabel: 'Reserved (Scheduled Booking)',
+        dot: 'bg-amber-600',
+        actionBorder: 'border-amber-300'
+      };
+    }
     if (isDirty) {
       return {
         bg: 'bg-rose-100/95 border-2 border-rose-600 hover:border-rose-800 shadow-sm',
@@ -484,24 +508,6 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
         fullLabel: 'Cleaning in Progress',
         dot: 'bg-purple-700',
         actionBorder: 'border-purple-300'
-      };
-    }
-    if (isReserved) {
-      return {
-        bg: 'bg-amber-100/95 border-2 border-amber-600 hover:border-amber-800 shadow-sm',
-        numberColor: 'text-slate-950 font-black',
-        numberBadge: 'bg-slate-950 text-white border-2 border-slate-700 font-black shadow-xs ring-1 ring-black/30',
-        typeColor: 'text-amber-900 font-bold',
-        floorColor: 'text-amber-800 font-mono font-bold',
-        floorBadge: 'bg-amber-200/80 text-amber-900 border border-amber-300/80 font-bold',
-        dividerColor: 'border-amber-300',
-        statusNoteColor: 'text-amber-950 font-black',
-        badgeBg: 'bg-amber-600 text-white font-black shadow-xs ring-1 ring-amber-500',
-        shortLabel: 'RES',
-        label: 'RESERVED',
-        fullLabel: 'Reserved (Arriving Today)',
-        dot: 'bg-amber-600',
-        actionBorder: 'border-amber-300'
       };
     }
     // Vacant Clean

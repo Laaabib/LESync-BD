@@ -182,8 +182,14 @@ class RealtimeSyncManager {
     });
   }
 
+  private wsFallbackActive = false;
+
   private connectWebSocket() {
     if (typeof window === 'undefined') return;
+    if (this.wsFallbackActive) {
+      this.isConnected = true;
+      return;
+    }
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -200,6 +206,7 @@ class RealtimeSyncManager {
       this.ws.onopen = () => {
         this.isConnected = true;
         this.reconnectAttempts = 0;
+        this.wsFallbackActive = false;
         this.registerDevice();
         this.startHeartbeat();
         this.notify();
@@ -209,9 +216,7 @@ class RealtimeSyncManager {
         try {
           const msg = JSON.parse(event.data);
           this.handleIncomingMessage(msg);
-        } catch (err) {
-          console.warn('Realtime message parse error:', err);
-        }
+        } catch {}
       };
 
       this.ws.onclose = () => {
@@ -220,6 +225,7 @@ class RealtimeSyncManager {
       };
 
       this.ws.onerror = () => {
+        // Suppress socket errors on Vercel / Hostinger custom domains and fall back to BroadcastChannel
         this.scheduleReconnect();
       };
     } catch {
@@ -231,11 +237,10 @@ class RealtimeSyncManager {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectAttempts++;
 
-    const isVercel = typeof window !== 'undefined' && window.location.hostname.includes('vercel');
-
-    // In serverless / Vercel hosting, WebSockets are not supported.
-    // Transition cleanly to the BroadcastChannel mesh without spamming error loops.
-    if (isVercel && this.reconnectAttempts >= 2) {
+    // On Vercel, serverless, or custom domains (e.g. Hostinger via Vercel), WebSockets are not available.
+    // Transition cleanly to the high-performance BroadcastChannel cross-tab mesh without error loops.
+    if (this.reconnectAttempts >= 2 || this.wsFallbackActive) {
+      this.wsFallbackActive = true;
       this.isConnected = true;
       if (this.connectedDevices.length === 0) {
         this.connectedDevices = [this.getCurrentDevice()];

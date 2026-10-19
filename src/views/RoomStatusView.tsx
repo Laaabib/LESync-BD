@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Layers, BedDouble, Sparkles, Wrench, ShieldAlert, CheckCircle2,
   Filter, Search, Clock, RefreshCw, X, AlertTriangle, ArrowRight,
@@ -40,15 +40,51 @@ export const RoomStatusView: React.FC<RoomStatusViewProps> = ({
   const rooms = db.rooms;
   const floors = Array.from(new Set(rooms.map(r => r.floor))).sort();
 
+  const reservedRoomIds = useMemo(() => {
+    const set = new Set<string>();
+    (db.reservations || []).forEach(r => {
+      const s = (r.status || '').toLowerCase().trim();
+      const isActive = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+      const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(r.cancellationReason) || Boolean(r.cancelledAt);
+      const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+      if (!isActive || isCancelled || isCheckedIn) return;
+
+      if (r.assignedRoomId) set.add(r.assignedRoomId);
+      if (r.assignedRoomNumber) {
+        String(r.assignedRoomNumber).split(',').forEach(num => {
+          const found = rooms.find(rm => rm.roomNumber === num.trim());
+          if (found) set.add(found.id);
+        });
+      }
+      if (r.allocatedRooms && Array.isArray(r.allocatedRooms)) {
+        r.allocatedRooms.forEach(ar => {
+          if (ar.roomId) set.add(ar.roomId);
+          if (ar.roomNumber) {
+            const found = rooms.find(rm => rm.roomNumber === ar.roomNumber);
+            if (found) set.add(found.id);
+          }
+        });
+      }
+    });
+    return set;
+  }, [db.reservations, rooms]);
+
+  const getEffectiveOpStatus = (room: Room) => {
+    if (room.operationalStatus === 'Available' && reservedRoomIds.has(room.id)) {
+      return 'Reserved';
+    }
+    return room.operationalStatus;
+  };
+
   // Aggregate counts
   const totalCount = rooms.length;
-  const vacantCleanCount = rooms.filter(r => (r.operationalStatus === 'Available' || r.operationalStatus === 'Inspected') && r.housekeepingStatus === 'Clean').length;
-  const vacantDirtyCount = rooms.filter(r => (r.operationalStatus === 'Dirty' || r.operationalStatus === 'Available') && r.housekeepingStatus === 'Dirty').length;
-  const occupiedCount = rooms.filter(r => r.operationalStatus === 'Occupied').length;
-  const reservedCount = rooms.filter(r => r.operationalStatus === 'Reserved').length;
-  const outOfOrderCount = rooms.filter(r => r.operationalStatus === 'Out of Order' || r.operationalStatus === 'Out of Service').length;
-  const blockedCount = rooms.filter(r => r.operationalStatus === 'Blocked').length;
-  const inspectedCount = rooms.filter(r => r.operationalStatus === 'Inspected' || r.housekeepingStatus === 'Inspected').length;
+  const vacantCleanCount = rooms.filter(r => (getEffectiveOpStatus(r) === 'Available' || getEffectiveOpStatus(r) === 'Inspected') && r.housekeepingStatus === 'Clean').length;
+  const vacantDirtyCount = rooms.filter(r => (getEffectiveOpStatus(r) === 'Dirty' || getEffectiveOpStatus(r) === 'Available') && r.housekeepingStatus === 'Dirty').length;
+  const occupiedCount = rooms.filter(r => getEffectiveOpStatus(r) === 'Occupied').length;
+  const reservedCount = rooms.filter(r => getEffectiveOpStatus(r) === 'Reserved').length;
+  const outOfOrderCount = rooms.filter(r => getEffectiveOpStatus(r) === 'Out of Order' || getEffectiveOpStatus(r) === 'Out of Service').length;
+  const blockedCount = rooms.filter(r => getEffectiveOpStatus(r) === 'Blocked').length;
+  const inspectedCount = rooms.filter(r => getEffectiveOpStatus(r) === 'Inspected' || r.housekeepingStatus === 'Inspected').length;
 
   const filteredRooms = rooms.filter(room => {
     if (floorFilter !== 'all' && room.floor.toString() !== floorFilter) return false;
@@ -61,27 +97,28 @@ export const RoomStatusView: React.FC<RoomStatusViewProps> = ({
       if (!matchNum && !matchType) return false;
     }
 
+    const effOp = getEffectiveOpStatus(room);
     if (statusFilter !== 'all') {
       if (statusFilter === 'vacant-clean') {
-        return (room.operationalStatus === 'Available' || room.operationalStatus === 'Inspected') && room.housekeepingStatus === 'Clean';
+        return (effOp === 'Available' || effOp === 'Inspected') && room.housekeepingStatus === 'Clean';
       }
       if (statusFilter === 'vacant-dirty') {
-        return room.operationalStatus === 'Dirty' || room.housekeepingStatus === 'Dirty';
+        return effOp === 'Dirty' || room.housekeepingStatus === 'Dirty';
       }
       if (statusFilter === 'occupied') {
-        return room.operationalStatus === 'Occupied';
+        return effOp === 'Occupied';
       }
       if (statusFilter === 'reserved') {
-        return room.operationalStatus === 'Reserved';
+        return effOp === 'Reserved';
       }
       if (statusFilter === 'inspected') {
-        return room.operationalStatus === 'Inspected' || room.housekeepingStatus === 'Inspected';
+        return effOp === 'Inspected' || room.housekeepingStatus === 'Inspected';
       }
       if (statusFilter === 'out-of-order') {
-        return room.operationalStatus === 'Out of Order' || room.operationalStatus === 'Out of Service';
+        return effOp === 'Out of Order' || effOp === 'Out of Service';
       }
       if (statusFilter === 'blocked') {
-        return room.operationalStatus === 'Blocked';
+        return effOp === 'Blocked';
       }
     }
 

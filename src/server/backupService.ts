@@ -125,8 +125,36 @@ class BackupService {
 
   public async createBackup(triggerType: 'scheduled_8am' | 'scheduled_4pm' | 'scheduled_11pm' | 'manual' = 'manual', clientState?: any): Promise<BackupMetadata> {
     this.ensureBackupDir();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `LESYNC_PMS_BACKUP_${triggerType.toUpperCase()}_${timestamp}.bak`;
+    const now = new Date();
+
+    let propertyName = clientState?.settings?.resortName || 'lesync';
+    if (!clientState?.settings?.resortName && pool) {
+      try {
+        const pRes = await pool.query("SELECT resort_name FROM pms_snapshots ORDER BY snapshot_version DESC LIMIT 1");
+        if (pRes.rows.length > 0 && pRes.rows[0].resort_name) {
+          propertyName = pRes.rows[0].resort_name;
+        }
+      } catch {}
+    }
+
+    const slug = propertyName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'lesync';
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = String(now.getFullYear()).slice(-2);
+
+    let timeSlotStr = '';
+    if (triggerType === 'scheduled_8am') timeSlotStr = '8.00AM';
+    else if (triggerType === 'scheduled_4pm') timeSlotStr = '4.00PM';
+    else if (triggerType === 'scheduled_11pm') timeSlotStr = '11.00PM';
+    else {
+      let hours = now.getHours();
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      timeSlotStr = `${hours}.${minutes}${ampm}`;
+    }
+
+    const filename = `${slug}_${day}_${month}_${year}_${timeSlotStr}.bak`;
     const filepath = path.join(this.config.backupDir, filename);
 
     // Gather data from PostgreSQL pool or fallback state
@@ -234,9 +262,10 @@ class BackupService {
         const stats = fs.statSync(fullPath);
 
         let triggerType: BackupMetadata['triggerType'] = 'manual';
-        if (f.includes('SCHEDULED_8AM')) triggerType = 'scheduled_8am';
-        else if (f.includes('SCHEDULED_4PM')) triggerType = 'scheduled_4pm';
-        else if (f.includes('SCHEDULED_11PM')) triggerType = 'scheduled_11pm';
+        const lower = f.toLowerCase();
+        if (lower.includes('8.00am') || f.includes('SCHEDULED_8AM')) triggerType = 'scheduled_8am';
+        else if (lower.includes('4.00pm') || f.includes('SCHEDULED_4PM')) triggerType = 'scheduled_4pm';
+        else if (lower.includes('11.00pm') || f.includes('SCHEDULED_11PM')) triggerType = 'scheduled_11pm';
 
         return {
           filename: f,

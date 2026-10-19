@@ -1083,7 +1083,7 @@ export const pmsService = {
           const roomObj = state.rooms.find(r => r.id === rId);
           if (roomObj) {
             rNum = roomObj.roomNumber;
-            if (data.arrivalDate === todayStr && roomObj.operationalStatus === 'Available') {
+            if (roomObj.operationalStatus !== 'Occupied') {
               roomObj.operationalStatus = 'Reserved';
             }
           }
@@ -1133,7 +1133,7 @@ export const pmsService = {
         const room = state.rooms.find(r => r.id === assignedRoomId);
         if (room) {
           assignedRoomNumber = room.roomNumber;
-          if (data.arrivalDate === todayStr && room.operationalStatus === 'Available') {
+          if (room.operationalStatus !== 'Occupied') {
             room.operationalStatus = 'Reserved';
           }
         }
@@ -1275,7 +1275,15 @@ export const pmsService = {
     this.logAudit('Created Reservation', 'Reservation', newRes.id, undefined, `${newRes.reservationNumber} for ${guest.fullName} (${nights} nights)`);
     this.addAlert('info', `New Reservation: ${newRes.reservationNumber}`, `${guest.fullName} reserved ${primaryRoomType.name}${newRes.totalRoomsCount && newRes.totalRoomsCount > 1 ? ` (${newRes.totalRoomsCount} rooms)` : ''} from ${data.arrivalDate} to ${data.departureDate}`, 'View Reservations', 'reservations');
     
+    saveDatabase(state);
     notify();
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
+
     return newRes;
   },
 
@@ -3731,6 +3739,7 @@ export const pmsService = {
     if (!user) throw new Error('User not found.');
     Object.assign(user, updates);
     this.logAudit('Modified Staff User', 'User', user.id, undefined, `Updated profile/role for ${user.name}`);
+    saveDatabase(state);
     notify();
     return { success: true, message: `User ${user.name} updated successfully.` };
   },
@@ -3746,6 +3755,7 @@ export const pmsService = {
     if (!user) throw new Error('User not found.');
     state.users = state.users.filter(u => u.id !== userId);
     this.logAudit('Deleted Staff User', 'User', userId, undefined, `Deleted user ${user.name} (${user.role})`);
+    saveDatabase(state);
     notify();
     return { success: true, message: `User ${user.name} removed successfully.` };
   },
@@ -4203,6 +4213,29 @@ export const pmsService = {
     if (!res) throw new Error('Reservation not found.');
 
     const oldStatus = res.status;
+    const oldAssignedRoomId = res.assignedRoomId;
+
+    // Handle room reallocation if assignedRoomId changed
+    if (updates.assignedRoomId !== undefined && updates.assignedRoomId !== oldAssignedRoomId) {
+      if (oldAssignedRoomId) {
+        const oldRoom = state.rooms.find(r => r.id === oldAssignedRoomId);
+        if (oldRoom && oldRoom.operationalStatus === 'Reserved') {
+          oldRoom.operationalStatus = 'Available';
+        }
+      }
+      if (updates.assignedRoomId) {
+        const newRoom = state.rooms.find(r => r.id === updates.assignedRoomId || r.roomNumber === updates.assignedRoomNumber);
+        if (newRoom && newRoom.operationalStatus !== 'Occupied') {
+          newRoom.operationalStatus = 'Reserved';
+          if (!updates.assignedRoomNumber && newRoom.roomNumber) {
+            updates.assignedRoomNumber = newRoom.roomNumber;
+          }
+        }
+      } else {
+        updates.assignedRoomNumber = undefined;
+      }
+    }
+
     Object.assign(res, updates, { updatedAt: new Date().toISOString() });
 
     // Recalculate estimated total if arrival/departure/rate changed
@@ -4217,7 +4250,13 @@ export const pmsService = {
     }
 
     this.logAudit('Modified Reservation', 'Reservation', res.id, oldStatus, `Updated reservation details for ${res.guestName} (${res.reservationNumber})`);
+    saveDatabase(state);
     notify();
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
     return { success: true, message: `Reservation ${res.reservationNumber} modified successfully.` };
   },
 
@@ -4236,13 +4275,20 @@ export const pmsService = {
     res.assignedRoomNumber = room.roomNumber;
     res.updatedAt = new Date().toISOString();
 
-    const todayStr = state.settings.currentBusinessDate || new Date().toISOString().split('T')[0];
-    if (res.arrivalDate === todayStr && room.operationalStatus === 'Available') {
+    if (room.operationalStatus !== 'Occupied') {
       room.operationalStatus = 'Reserved';
     }
 
     this.logAudit('Assigned Room to Reservation', 'Reservation', res.id, undefined, `Assigned Room ${room.roomNumber} to ${res.guestName} (${res.reservationNumber})`);
+    saveDatabase(state);
     notify();
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
+
     return { success: true, message: `Room ${room.roomNumber} allocated to ${res.guestName}.` };
   },
 
@@ -4253,7 +4299,7 @@ export const pmsService = {
     const res = state.reservations.find(r => r.id === reservationId);
     if (!res) throw new Error('Reservation not found.');
     if (res.status === 'Checked-In') {
-      throw new Error('Cannot delete a reservation that is currently Checked-In. Please check out the guest first.');
+      throw new Error('Cannot cancel a reservation that is currently Checked-In. Please check out the guest first.');
     }
 
     // Release assigned room if reserved
@@ -4278,13 +4324,70 @@ export const pmsService = {
     }
 
     res.status = 'Cancelled';
-    res.specialRequests = (res.specialRequests ? res.specialRequests + ' | ' : '') + `[DELETED/CANCELLED by ${state.currentUser.name}: ${reason}]`;
+    res.specialRequests = (res.specialRequests ? res.specialRequests + ' | ' : '') + `[CANCELLED by ${state.currentUser.name}: ${reason}]`;
     res.updatedAt = new Date().toISOString();
 
-    this.logAudit('Deleted/Cancelled Reservation', 'Reservation', res.id, 'Active', `Reservation ${res.reservationNumber} cancelled. Reason: ${reason}`);
+    this.logAudit('Cancelled Reservation', 'Reservation', res.id, 'Active', `Reservation ${res.reservationNumber} cancelled. Reason: ${reason}`);
     this.addAlert('info', `Reservation Cancelled: ${res.reservationNumber}`, `${res.reservationNumber} (${res.guestName}) cancelled by ${state.currentUser.name}.`, 'View Reservations', 'reservations');
+    
+    saveDatabase(state);
     notify();
-    return { success: true, message: `Reservation ${res.reservationNumber} has been removed/cancelled.` };
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
+
+    return { success: true, message: `Reservation ${res.reservationNumber} has been cancelled and room released.` };
+  },
+
+  purgeReservationPermanently(reservationId: string, reason: string): { success: boolean; message: string } {
+    if (!this.hasPermission('can_delete_reservations')) {
+      throw new Error('Permission Denied: User role does not have authorization to delete reservations.');
+    }
+    const res = state.reservations.find(r => r.id === reservationId);
+    if (!res) throw new Error('Reservation not found.');
+    if (res.status === 'Checked-In') {
+      throw new Error('Cannot delete a reservation that is currently Checked-In. Please check out the guest first.');
+    }
+
+    // Release assigned room if reserved
+    if (res.assignedRoomId) {
+      const room = state.rooms.find(r => r.id === res.assignedRoomId);
+      if (room && room.operationalStatus === 'Reserved') {
+        room.operationalStatus = 'Available';
+      }
+    }
+    if (res.allocatedRooms && res.allocatedRooms.length > 0) {
+      res.allocatedRooms.forEach(ar => {
+        if (ar.roomId) {
+          const room = state.rooms.find(r => r.id === ar.roomId);
+          if (room && room.operationalStatus === 'Reserved') {
+            room.operationalStatus = 'Available';
+          }
+        }
+      });
+    }
+
+    const deletedResNumber = res.reservationNumber;
+    const deletedGuestName = res.guestName;
+
+    state.reservations = state.reservations.filter(r => r.id !== reservationId);
+
+    this.logAudit('Permanently Deleted Reservation', 'Reservation', reservationId, undefined, `Reservation ${deletedResNumber} (${deletedGuestName}) permanently deleted. Reason: ${reason}`);
+    this.addAlert('warning', `Reservation Purged: ${deletedResNumber}`, `Reservation ${deletedResNumber} for ${deletedGuestName} was permanently deleted by ${state.currentUser.name}.`, 'View Reservations', 'reservations');
+    
+    saveDatabase(state);
+    notify();
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
+
+    return { success: true, message: `Reservation ${deletedResNumber} has been permanently deleted from database.` };
   },
 
   // -------------------------------------------------------------
@@ -5836,11 +5939,39 @@ export const pmsService = {
     return header + JSON.stringify(payload, null, 2);
   },
 
+  formatPropertyBackupFilename(customNameOrDate?: string | Date, dateInput?: Date, specificTimeStr?: string): string {
+    const isFirstArgDate = customNameOrDate instanceof Date;
+    const date = isFirstArgDate ? customNameOrDate : (dateInput instanceof Date ? dateInput : new Date());
+    const rawName = (!isFirstArgDate && typeof customNameOrDate === 'string' && customNameOrDate.trim())
+      ? customNameOrDate
+      : (state.settings?.resortName || 'lesync');
+
+    const slug = String(rawName)
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'lesync';
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+
+    let timePart = specificTimeStr;
+    if (!timePart) {
+      let hours = date.getHours();
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      timePart = `${hours}.${minutes}${ampm}`;
+    }
+
+    return `${slug}_${day}_${month}_${year}_${timePart}.bak`;
+  },
+
   downloadBakArchive(filename?: string): void {
     if (typeof window === 'undefined') return;
     const content = this.exportFullBakContent();
-    const curBiz = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
-    const name = filename || `LESYNC_PMS_DATABASE_${curBiz}_${Date.now()}.bak`;
+    const name = filename || this.formatPropertyBackupFilename();
     const blob = new Blob([content], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -1232,7 +1232,16 @@ class ReportingService {
       }
 
       case 'RPT-FO-003': {
-        rows = db.reservations.map(res => ({
+        const todayStr = db.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+        const activeArrivals = db.reservations.filter(res => {
+          const s = (res.status || '').toLowerCase().trim();
+          const isConfirmed = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+          const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(res.cancellationReason) || Boolean(res.cancelledAt);
+          const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+          if (isCancelled || isCheckedIn) return false;
+          return isConfirmed && res.arrivalDate === todayStr;
+        });
+        rows = activeArrivals.map(res => ({
           confirmationCode: res.reservationNumber,
           guestName: res.guestName,
           checkInDate: res.arrivalDate,

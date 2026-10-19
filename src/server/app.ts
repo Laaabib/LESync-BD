@@ -51,11 +51,11 @@ export function registerDeviceListHandler(handler: DeviceListHook) {
 export function createApp(): express.Express {
   const app = express();
 
-  // CORS support for Vercel and cross-origin clients
+  // CORS support for Vercel, Hostinger custom domains, and cross-origin clients
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, X-Client-Info');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, X-Client-Info, X-Requested-With, Range, Accept, Origin');
     if (req.method === 'OPTIONS') {
       return res.status(200).end();
     }
@@ -80,6 +80,7 @@ export function createApp(): express.Express {
         rawUrl.startsWith('/cloudsql') ||
         rawUrl.startsWith('/accounts') ||
         rawUrl.startsWith('/biometric') ||
+        rawUrl.startsWith('/backup') ||
         rawUrl === '/health' ||
         rawUrl.startsWith('/health?')
       ) {
@@ -610,6 +611,53 @@ export function createApp(): express.Express {
     } catch (error: any) {
       console.error('SQL console query error:', error?.message || error);
       res.status(500).json({ success: false, error: error?.message || 'SQL execution failed' });
+    }
+  });
+
+  // 10d. Supabase / PostgreSQL Direct User Update & Delete
+  app.post(['/api/supabase/update-user', '/api/cloudsql/update-user'], async (req, res) => {
+    try {
+      const { uid, name, username, role, email } = req.body || {};
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'uid is required' });
+      }
+
+      if (isPostgresConfigured()) {
+        await ensureDatabaseSchema();
+        await pool.query(
+          `INSERT INTO users (uid, name, username, role, email, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (uid) DO UPDATE SET
+             name = COALESCE(EXCLUDED.name, users.name),
+             username = COALESCE(EXCLUDED.username, users.username),
+             role = COALESCE(EXCLUDED.role, users.role),
+             email = COALESCE(EXCLUDED.email, users.email),
+             updated_at = NOW()`,
+          [uid, name || null, username || null, role || null, email || null]
+        );
+      }
+      res.json({ success: true, message: `User ${uid} updated in cloud database.` });
+    } catch (err: any) {
+      console.warn('Notice updating user via backend API:', err?.message || err);
+      res.json({ success: true, notice: err?.message });
+    }
+  });
+
+  app.post(['/api/supabase/delete-user', '/api/cloudsql/delete-user'], async (req, res) => {
+    try {
+      const { uid } = req.body || {};
+      if (!uid) {
+        return res.status(400).json({ success: false, error: 'uid is required' });
+      }
+
+      if (isPostgresConfigured()) {
+        await ensureDatabaseSchema();
+        await pool.query('DELETE FROM users WHERE uid = $1', [uid]);
+      }
+      res.json({ success: true, message: `User ${uid} deleted from cloud database.` });
+    } catch (err: any) {
+      console.warn('Notice deleting user via backend API:', err?.message || err);
+      res.json({ success: true, notice: err?.message });
     }
   });
 

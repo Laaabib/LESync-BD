@@ -195,10 +195,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
       const blob = new Blob([bakContent], { type: 'application/octet-stream;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const now = new Date();
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const backupFilename = pmsService.formatPropertyBackupFilename();
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', url);
-      downloadAnchor.setAttribute('download', `LESync_PMS_Backup_${timestamp}.bak`);
+      downloadAnchor.setAttribute('download', backupFilename);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();

@@ -53,8 +53,25 @@ export const RoomRackView: React.FC<RoomRackViewProps> = ({
   const reservationsByRoom = useMemo(() => {
     const map = new Map<string, any>();
     (db.reservations || []).forEach(r => {
-      if ((r.status === 'Confirmed' || r.status === 'Unconfirmed') && r.assignedRoomNumber) {
-        map.set(r.assignedRoomNumber, r);
+      const s = (r.status || '').toLowerCase().trim();
+      const isActive = s === 'confirmed' || s === 'unconfirmed' || s === 'pending';
+      const isCancelled = s === 'cancelled' || s === 'canceled' || Boolean(r.cancellationReason) || Boolean(r.cancelledAt);
+      const isCheckedIn = s === 'checked-in' || s === 'checkedin';
+      if (!isActive || isCancelled || isCheckedIn) return;
+
+      if (r.assignedRoomNumber) {
+        String(r.assignedRoomNumber).split(',').forEach(num => {
+          if (num.trim()) map.set(num.trim(), r);
+        });
+      }
+      if (r.assignedRoomId) {
+        map.set(r.assignedRoomId, r);
+      }
+      if (r.allocatedRooms && Array.isArray(r.allocatedRooms)) {
+        r.allocatedRooms.forEach(ar => {
+          if (ar.roomNumber) map.set(ar.roomNumber.trim(), r);
+          if (ar.roomId) map.set(ar.roomId, r);
+        });
       }
     });
     return map;
@@ -71,17 +88,25 @@ export const RoomRackView: React.FC<RoomRackViewProps> = ({
 
   const filteredRooms = useMemo(() => {
     return (db.rooms || []).filter(r => {
-      const matchesStatus = statusFilter === 'All' || r.operationalStatus === statusFilter;
+      const res = reservationsByRoom.get(r.roomNumber) || reservationsByRoom.get(r.id);
+      let effectiveStatus = r.operationalStatus;
+      if (effectiveStatus !== 'Occupied' && (effectiveStatus === 'Available' || effectiveStatus === 'Dirty' || effectiveStatus === 'Inspected') && res) {
+        effectiveStatus = 'Reserved';
+      }
+      const matchesStatus = statusFilter === 'All' || effectiveStatus === statusFilter;
       const matchesFloor = floorFilter === 'All' || r.floor === floorFilter;
       const matchesSearch = !roomSearch.trim() ||
         r.roomNumber.toLowerCase().includes(roomSearch.trim().toLowerCase()) ||
         r.roomTypeName.toLowerCase().includes(roomSearch.trim().toLowerCase());
       return matchesStatus && matchesFloor && matchesSearch;
     });
-  }, [db.rooms, statusFilter, floorFilter, roomSearch]);
+  }, [db.rooms, statusFilter, floorFilter, roomSearch, reservationsByRoom]);
 
-  const getRoomMiniRackStyle = (room: Room) => {
-    const op = room.operationalStatus;
+  const getRoomMiniRackStyle = (room: Room, reservation?: any) => {
+    let op = room.operationalStatus;
+    if (op !== 'Occupied' && (op === 'Reserved' || reservation)) {
+      op = 'Reserved';
+    }
     const hk = room.housekeepingStatus;
 
     if (op === 'Occupied') {
@@ -285,9 +310,9 @@ export const RoomRackView: React.FC<RoomRackViewProps> = ({
               {/* High-Density Mini Rack Cards */}
               <div className="grid grid-cols-[repeat(auto-fill,minmax(86px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(96px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5">
                 {roomsOnFloor.map(room => {
-                  const style = getRoomMiniRackStyle(room);
-                  const stay = activeStaysByRoom.get(room.roomNumber);
                   const reservation = reservationsByRoom.get(room.roomNumber);
+                  const style = getRoomMiniRackStyle(room, reservation);
+                  const stay = activeStaysByRoom.get(room.roomNumber);
                   const isDueOut = stay && stay.expectedCheckOutAt && stay.expectedCheckOutAt.startsWith(todayStr);
                   const isVip = (stay && stay.vip) || (stay && allGuests.get(stay.guestId)?.vipStatus);
                   const isSearchMatch = Boolean(

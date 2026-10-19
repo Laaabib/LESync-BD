@@ -515,12 +515,20 @@ class SupabaseSyncService {
     if (!state) return;
     pmsService.restoreFullBackupPayload({ pmsDatabase: state });
 
-    // Synchronize users & usernames from restored state
+    // Synchronize users & usernames from restored state without overwriting local admin edits
     if (Array.isArray(state.users) && state.users.length > 0) {
+      const localUsers = rbacService.getUsers();
+      const localUserMap = new Map(localUsers.map(u => [u.id, u]));
+
       state.users.forEach((u: any) => {
         if (u && u.id) {
           // Never resurrect deleted users
-          if (rbacService.isUserDeleted(u.id)) {
+          if (rbacService.isUserDeleted(u.id) || authService.getDeletedUserIds().has(u.id)) {
+            return;
+          }
+          const existing = localUserMap.get(u.id);
+          if (existing) {
+            // Keep local user's name and settings; never overwrite with older snapshot
             return;
           }
           const userUsername = u.username || (u.email ? u.email.split('@')[0] : u.id);
@@ -645,14 +653,32 @@ class SupabaseSyncService {
       // 2. Fetch individual user accounts from users table in Supabase
       const { data: usersData, error: uErr } = await client.from('users').select('*');
       if (!uErr && Array.isArray(usersData) && usersData.length > 0) {
+        const localUsers = rbacService.getAllUsers();
         usersData.forEach((uRow: any) => {
           if (uRow && uRow.uid) {
             // Strictly check if user was deleted
-            if (rbacService.isUserDeleted(uRow.uid)) {
+            if (rbacService.isUserDeleted(uRow.uid) || authService.getDeletedUserIds().has(uRow.uid)) {
               // Delete from Supabase cloud database to maintain sync
               Promise.resolve(client.from('users').delete().eq('uid', uRow.uid)).catch(() => {});
               return;
             }
+
+            const existingLocal = localUsers.find(u => u.id === uRow.uid);
+            if (existingLocal) {
+              // Local user already exists and may have been edited by admin: NEVER revert local name!
+              // If local name differs from remote, push local name to Supabase
+              if (existingLocal.name && existingLocal.name !== uRow.name) {
+                this.updateUserInSupabase(uRow.uid, {
+                  name: existingLocal.name,
+                  username: existingLocal.username,
+                  role: existingLocal.roleName,
+                  email: existingLocal.email
+                });
+              }
+              return;
+            }
+
+            // User does not exist locally: hydrate new user
             rbacService.updateUser(uRow.uid, {
               name: uRow.name,
               roleName: uRow.role,
@@ -845,6 +871,49 @@ class SupabaseSyncService {
       lastFailedAt,
       error: lastErrorMessage || error,
     };
+  }
+
+  public async updateUserInSupabase(uid: string, updates: { name?: string; username?: string; role?: string; email?: string }): Promise<void> {
+    try {
+      const client = getSupabaseClient();
+      if (client) {
+        const row: any = { uid };
+        if (updates.name) row.name = updates.name;
+        if (updates.username) row.username = updates.username;
+        if (updates.role) row.role = updates.role;
+        if (updates.email) row.email = updates.email;
+        await client.from('users').upsert(row, { onConflict: 'uid' });
+      }
+    } catch (err: any) {
+      console.warn('Notice updating user in Supabase cloud:', err?.message || err);
+    }
+
+    try {
+      await safeJsonFetch('/api/supabase/update-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, ...updates })
+      }, 5000);
+    } catch {}
+  }
+
+  public async deleteUserFromSupabase(uid: string): Promise<void> {
+    try {
+      const client = getSupabaseClient();
+      if (client) {
+        await client.from('users').delete().eq('uid', uid);
+      }
+    } catch (err: any) {
+      console.warn('Notice deleting user from Supabase cloud:', err?.message || err);
+    }
+
+    try {
+      await safeJsonFetch('/api/supabase/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid })
+      }, 5000);
+    } catch {}
   }
 }
 

@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan to format all manual and automated 3x daily database backup archive filenames according to the property name and timestamp pattern: <property>_<DD>_<MM>_<YY>_<time>.bak (e.g. lesync_18_10_26_8.00AM.bak).",
-  "updatedAt": "2026-10-18T06:34:13.897852951Z",
+  "summary": "Implementation plan for restricting the Edit Reservation option so that Checked-In and Cancelled reservations cannot be edited across Reservations Directory, Front Desk Arrivals, Calendar View, Edit Modal, and PMS Service.",
+  "updatedAt": "2026-10-19T10:50:42.783937462Z",
   "requestFeedback": true,
   "userFacing": true
 }

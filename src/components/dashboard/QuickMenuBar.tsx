@@ -687,7 +687,7 @@ const ReportViewerModal: React.FC<ReportViewerModalProps> = ({
     const isCheckedIn = s === 'checked-in' || s === 'checkedin';
     const isCheckedOut = s === 'checked-out' || s === 'checkedout';
     if (isCancelled || isCheckedIn || isCheckedOut) return false;
-    return isConfirmed && (r.arrivalDate === todayStr || r.arrivalDate <= todayStr);
+    return isConfirmed && r.arrivalDate === todayStr;
   });
   const filteredArrivals = arrivals.filter(r => {
     return (

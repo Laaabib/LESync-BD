@@ -1888,6 +1888,10 @@ class RbacManager {
     return this.users.filter(u => !this.deletedUserIds.has(u.id));
   }
 
+  public getAllUsers(): UserContext[] {
+    return this.getUsers();
+  }
+
   public getActiveUser(): UserContext {
     return this.activeUser;
   }

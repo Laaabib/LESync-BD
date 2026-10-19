@@ -133,7 +133,7 @@ class AuthService {
     this.restoreSession();
   }
 
-  private getDeletedUserIds(): Set<string> {
+  public getDeletedUserIds(): Set<string> {
     try {
       const saved = localStorage.getItem(STORAGE_DELETED_USERS_KEY);
       if (saved) {
@@ -825,6 +825,12 @@ class AuthService {
     // 6. Trigger automatic background sync to Supabase and PostgreSQL/Cloud SQL
     if (!options?.skipCloudSync) {
       try {
+        supabaseSyncService.updateUserInSupabase(userId, {
+          name: updates.name,
+          username: updates.username,
+          role: updates.roleName,
+          email: updates.email
+        }).catch(() => {});
         supabaseSyncService.syncEntirePmsState().catch(err => {
           console.warn('Notice background Supabase sync after user update:', err?.message || err);
         });
@@ -888,12 +894,14 @@ class AuthService {
         };
       }
     }
+    saveDatabase(pmsDb);
     pmsService.notify();
     pmsService.logAudit('Deleted User', 'User', userId, undefined, `Super Admin permanently deleted user account ${userId}`);
 
     // 5. Trigger cloud synchronization and database deletion
     try {
       import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.deleteUserFromSupabase(userId).catch(() => {});
         supabaseSyncService.syncEntirePmsState().catch(err => {
           console.warn('[Supabase] Background sync notice after user deletion:', err?.message || err);
         });
