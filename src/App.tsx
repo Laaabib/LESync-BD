@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { pmsService } from './services/pmsService';
 import { authService, AuthSession } from './services/authService';
 import { cloudSqlSyncService } from './services/cloudSqlSyncService';
@@ -1246,6 +1247,9 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Vercel Speed Insights */}
+      <SpeedInsights />
     </div>
   );
 }
