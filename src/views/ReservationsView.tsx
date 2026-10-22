@@ -485,13 +485,15 @@ export const ReservationsView: React.FC<ReservationsViewProps> = ({
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => setEditingRes(res)}
-                          title="Edit Reservation Details (Dates, Room, Rate, Guest)"
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 rounded-lg font-medium border border-slate-700 transition-colors"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
+                        {res.status !== 'Checked-In' && res.status !== 'Cancelled' && (
+                          <button
+                            onClick={() => setEditingRes(res)}
+                            title="Edit Reservation Details (Dates, Room, Rate, Guest)"
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 rounded-lg font-medium border border-slate-700 transition-colors"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {(res.status === 'Confirmed' || res.status === 'Unconfirmed' || (res.status as string) === 'Pending') && (
                           <button
                             onClick={() => onOpenCheckIn(res.id)}

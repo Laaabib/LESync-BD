@@ -99,6 +99,36 @@ export const CloudSqlSyncModal: React.FC<CloudSqlSyncModalProps> = ({ isOpen, on
           </button>
         </div>
 
+        {/* Cloud DB Sync Protection Switch Banner */}
+        <div className="px-6 py-2.5 bg-slate-800 border-b border-slate-700 flex items-center justify-between text-xs text-white">
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${cloudSqlSyncService.isCloudSyncEnabled() ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+            <div>
+              <span className="font-bold">Cloud Database Sync Protection: </span>
+              <span className="text-slate-300 text-[11px]">
+                {cloudSqlSyncService.isCloudSyncEnabled()
+                  ? 'Production Live Sync Active'
+                  : 'IDE Sandbox Active (Local-only, live DB protected)'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = !cloudSqlSyncService.isCloudSyncEnabled();
+              cloudSqlSyncService.setCloudSyncEnabled(next);
+              setHealth(cloudSqlSyncService.getHealth());
+            }}
+            className={`px-3 py-1 rounded-lg text-[11px] font-bold font-mono transition cursor-pointer shrink-0 ${
+              cloudSqlSyncService.isCloudSyncEnabled()
+                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                : 'bg-rose-600 text-white hover:bg-rose-500'
+            }`}
+          >
+            {cloudSqlSyncService.isCloudSyncEnabled() ? 'LIVE SYNC ON' : 'SANDBOX (SYNC OFF)'}
+          </button>
+        </div>
+
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5">
           {/* Health Alert Banner (Failure or Overdue) */}

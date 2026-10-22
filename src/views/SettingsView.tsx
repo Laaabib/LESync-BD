@@ -40,7 +40,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
 
   const [resortName, setResortName] = useState(db.settings?.resortName || 'LESync Resort & Convention Hall');
   const [address, setAddress] = useState(db.settings?.address || 'Joypara, Dohar, Dhaka-1330, Bangladesh');
-  const [phone, setPhone] = useState(db.settings?.phone || '+880 1713-388000');
+  const [phone, setPhone] = useState(db.settings?.phone || '+8801330480273');
   const [email, setEmail] = useState(db.settings?.email || 'info@lesyncpms.com');
   const [website, setWebsite] = useState(db.settings?.website || '');
   const [logoUrl, setLogoUrl] = useState(db.settings?.logoUrl || '');

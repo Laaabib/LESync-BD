@@ -684,14 +684,16 @@ export const FrontDeskView: React.FC<FrontDeskViewProps> = ({
                             <LogIn className="w-3.5 h-3.5" />
                             <span>Check-In</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingArrival(res)}
-                            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors border border-gray-200 hover:border-cyan-300"
-                            title="Edit Reservation Details (Dates, Room, Rate, Guest)"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
+                          {res.status !== 'Checked-In' && res.status !== 'Cancelled' && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingArrival(res)}
+                              className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors border border-gray-200 hover:border-cyan-300"
+                              title="Edit Reservation Details (Dates, Room, Rate, Guest)"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setDeletingArrival(res)}

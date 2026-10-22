@@ -387,7 +387,7 @@ export const PrintableModal: React.FC<PrintableModalProps> = (props) => {
   const defaultSettings: SystemSetting = {
     resortName: 'LESync Resort & Convention Hall',
     address: 'Purbachal Link Road, Gazipur / Dhaka, Bangladesh',
-    phone: '+880 1711-223344 / +880 9612-445566',
+    phone: '+8801330480273',
     email: 'info@lesyncresort.com / support@leinnova.com',
     taxRatePercent: 15,
     serviceChargePercent: 10,

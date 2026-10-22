@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import {
   X, Receipt, PlusCircle, CreditCard, Percent, FileText,
   Printer, ArrowDownRight, Tag, ShieldCheck, AlertCircle, Trash2, ShieldAlert,
-  Lock, Unlock, AlertTriangle, CheckCircle2, Info, RefreshCw, RotateCcw
+  Lock, Unlock, AlertTriangle, CheckCircle2, Info, RefreshCw, RotateCcw,
+  Edit3, Wrench
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
+import { authService } from '../../services/authService';
 import { Folio, FolioItem, PaymentMethod } from '../../types/pms';
 import { BDCardAndPaymentSelector } from '../common/BDCardAndPaymentSelector';
 import { PaymentTenderDetails } from '../../constants/paymentConfig';
@@ -65,10 +67,38 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
   const [stopPostPreset, setStopPostPreset] = useState('Credit Limit Exceeded — Direct Pay Only');
   const [stopPostCustomReason, setStopPostCustomReason] = useState('');
 
+  // System Owner Master Correction State
+  const isOwner = authService.isSystemOwner();
+  const [editingChargeItem, setEditingChargeItem] = useState<FolioItem | null>(null);
+  const [editChargeDesc, setEditChargeDesc] = useState('');
+  const [editChargeQty, setEditChargeQty] = useState(1);
+  const [editChargeUnitPrice, setEditChargeUnitPrice] = useState(0);
+  const [editChargeTotal, setEditChargeTotal] = useState(0);
+  const [editChargeReason, setEditChargeReason] = useState('Mistaken charge amount correction by System Owner');
+
   const [message, setMessage] = useState('');
   const canVoidBills = pmsService.hasPermission('can_void_bills') || rbacService.hasPermission('folio:void-charge') || rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void');
   const canResettleBills = rbacService.hasPermission('billing:bill-resettle') || rbacService.hasPermission('approvals:bill-resettle') || pmsService.hasPermission('can_void_bills');
   const canVoidEntireFolio = rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void');
+
+  const handleSaveChargeCorrection = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingChargeItem || !folio) return;
+    try {
+      pmsService.correctFolioItem(folio.id, editingChargeItem.id, {
+        description: editChargeDesc,
+        quantity: editChargeQty,
+        unitPrice: editChargeUnitPrice,
+        total: editChargeTotal,
+        reason: editChargeReason
+      });
+      setMessage(`Charge updated to ৳${editChargeTotal.toLocaleString()} successfully.`);
+      setEditingChargeItem(null);
+      onSuccess?.();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to correct charge item.');
+    }
+  };
 
   if (!isOpen || !folio) return null;
 
@@ -670,17 +700,36 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
                       )}
                     </td>
                     <td className="py-2 px-2 text-center">
-                      {!it.voided && (
-                        <button
-                          type="button"
-                          onClick={() => setItemToVoid(it)}
-                          disabled={!canVoidBills}
-                          className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                          title="Void this line item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <div className="flex items-center justify-center gap-1">
+                        {isOwner && !it.voided && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingChargeItem(it);
+                              setEditChargeDesc(it.description);
+                              setEditChargeQty(it.quantity || 1);
+                              setEditChargeUnitPrice(it.unitPrice || 0);
+                              setEditChargeTotal(it.total || 0);
+                              setEditChargeReason('Mistaken charge amount correction');
+                            }}
+                            className="p-1 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded transition"
+                            title="Owner Master Correction: Edit mistaken charge or bill amount"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {!it.voided && (
+                          <button
+                            type="button"
+                            onClick={() => setItemToVoid(it)}
+                            disabled={!canVoidBills}
+                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Void this line item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -983,6 +1032,108 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
                   Confirm Void Entire Folio
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+        {/* System Owner Inline Charge Correction Modal */}
+        {editingChargeItem && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-3 text-amber-400">
+                <div className="p-2 bg-amber-500/20 rounded-xl border border-amber-500/30">
+                  <Wrench className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">System Owner Master Charge Editor</h3>
+                  <p className="text-slate-400 text-[11px]">Correct mistaken bill, amount, or description in background</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveChargeCorrection} className="space-y-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Charge Description <span className="text-amber-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editChargeDesc}
+                    onChange={(e) => setEditChargeDesc(e.target.value)}
+                    required
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1">Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editChargeQty}
+                      onChange={(e) => {
+                        const q = Math.max(1, parseInt(e.target.value) || 1);
+                        setEditChargeQty(q);
+                        setEditChargeTotal(q * editChargeUnitPrice);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1">Unit Price (৳)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editChargeUnitPrice}
+                      onChange={(e) => {
+                        const up = parseFloat(e.target.value) || 0;
+                        setEditChargeUnitPrice(up);
+                        setEditChargeTotal(editChargeQty * up);
+                      }}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-100 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[10px] mb-1">Total (৳)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editChargeTotal}
+                      onChange={(e) => setEditChargeTotal(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-950 border border-amber-500/50 rounded-xl px-2.5 py-1.5 text-amber-300 font-bold text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Audit Note / Reason for Correction <span className="text-amber-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editChargeReason}
+                    onChange={(e) => setEditChargeReason(e.target.value)}
+                    required
+                    placeholder="e.g. Incorrect cashier posting / Rate adjustment"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs focus:ring-1 focus:ring-amber-500 outline-none"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingChargeItem(null)}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition text-xs shadow-lg shadow-amber-950/40"
+                  >
+                    Save Correction
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

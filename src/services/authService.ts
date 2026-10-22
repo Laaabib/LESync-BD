@@ -642,6 +642,28 @@ class AuthService {
     return { success: true, message: 'Password updated successfully.' };
   }
 
+  /**
+   * Determine whether a user is the primary System Owner (Labib Zunaedy / @admin)
+   * Only this root user has authority to switch roles/staff in the profile menu,
+   * reset database to clean state, toggle cloud database sync, and perform master ledger charge edits.
+   */
+  public isSystemOwner(user?: UserContext | null): boolean {
+    const u = user !== undefined ? user : this.getCurrentUser();
+    if (!u) return false;
+    const cred = this.credentials[u.id];
+    const username = (cred?.username || u.username || '').toLowerCase().trim();
+    const email = (u.email || cred?.email || '').toLowerCase().trim();
+    const name = (u.name || '').toLowerCase().trim();
+    return (
+      u.id === 'usr-admin-1' ||
+      username === 'admin' ||
+      email === 'admin@lesyncpms.com' ||
+      email === 'labibzunaedy@gmail.com' ||
+      name.includes('labib') ||
+      name.includes('zunaedy')
+    );
+  }
+
   public adminCreateUser(userData: {
     name: string;
     employeeId: string;

@@ -410,6 +410,37 @@ export const CloudSqlSyncHeaderAlert: React.FC<CloudSqlSyncHeaderAlertProps> = (
             </div>
           </div>
 
+          {/* Cloud Database Sync Protection & Sandbox Switch (IT & App Owner) */}
+          <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-white">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div>
+                <span className="text-[11px] font-bold block leading-tight">Cloud Database Sync</span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">
+                  {cloudSqlSyncService.isCloudSyncEnabled()
+                    ? 'Replicating to Supabase production database'
+                    : 'IDE Sandbox Active — Local storage only'}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !cloudSqlSyncService.isCloudSyncEnabled();
+                cloudSqlSyncService.setCloudSyncEnabled(next);
+                setHealth(cloudSqlSyncService.getHealth());
+              }}
+              className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold transition cursor-pointer shrink-0 ${
+                cloudSqlSyncService.isCloudSyncEnabled()
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30'
+              }`}
+              title={cloudSqlSyncService.isCloudSyncEnabled() ? 'Cloud Sync is Active. Click to pause into Sandbox mode.' : 'Cloud Sync is Paused. Click to enable live cloud sync.'}
+            >
+              {cloudSqlSyncService.isCloudSyncEnabled() ? 'LIVE SYNC ON' : 'SANDBOX (OFF)'}
+            </button>
+          </div>
+
           {/* Connected Resort Terminals Mesh Section */}
           <div className="p-3 bg-slate-50 border-b border-gray-200">
             <div className="flex items-center justify-between mb-2">

@@ -433,7 +433,29 @@ export const pmsService = {
     return { merged, hadLocalPreserved };
   },
 
+  isSystemOwner(user?: User | any): boolean {
+    const u = user || this.getCurrentUser();
+    if (!u) return false;
+    const username = (u.username || '').toLowerCase().trim();
+    const email = (u.email || '').toLowerCase().trim();
+    const name = (u.name || '').toLowerCase().trim();
+    return (
+      u.id === 'usr-admin-1' ||
+      username === 'admin' ||
+      email === 'admin@lesyncpms.com' ||
+      email === 'labibzunaedy@gmail.com' ||
+      name.includes('labib') ||
+      name.includes('zunaedy')
+    );
+  },
+
   resetToCleanState() {
+    const currentUser = this.getCurrentUser();
+    const isOwner = this.isSystemOwner(currentUser);
+    if (!isOwner) {
+      throw new Error('Access Denied: Only the root System Owner (@admin - Labib Zunaedy) is authorized to vanish all app data and reset to clean state.');
+    }
+
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem('pms_clean_state_active', 'true');
       localStorage.setItem('cculb_clean_state_v1', 'true');
@@ -504,6 +526,10 @@ export const pmsService = {
   },
 
   resetAllAccountBalances() {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset all financial account balances.');
+    }
     if (!state.glAccounts) state.glAccounts = [];
     state.glAccounts = state.glAccounts.map(a => ({
       ...a,
@@ -598,6 +624,10 @@ export const pmsService = {
     currentBusinessDate?: string;
     cleanMode: 'clean_transactions_keep_rooms' | 'fresh_slate_starter_rooms';
   }) {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
+    }
     const todayStr = config.currentBusinessDate || new Date().toISOString().split('T')[0];
     state.settings = {
       ...state.settings,
@@ -2385,6 +2415,205 @@ export const pmsService = {
     this.logAudit('Posted Folio Adjustment', 'Folio', folio.id, undefined, `${newItem.description} (৳${adjustment.amount}) to Folio ${folio.folioNumber}`);
     notify();
     return newItem;
+  },
+
+  correctFolioItem(
+    folioId: string,
+    itemId: string,
+    updates: {
+      description?: string;
+      quantity?: number;
+      unitPrice?: number;
+      discount?: number;
+      tax?: number;
+      total?: number;
+      reason?: string;
+    }
+  ): { success: boolean; message: string; folio: Folio } {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (@admin - Labib Zunaedy) is authorized to make master ledger charge corrections.');
+    }
+
+    const folio = state.folios.find(f => f.id === folioId || f.folioNumber === folioId);
+    if (!folio) throw new Error('Folio not found.');
+
+    const item = (folio.items || []).find(it => it.id === itemId);
+    if (!item) throw new Error('Folio item charge not found.');
+
+    const oldTotal = item.total;
+    const oldDesc = item.description;
+
+    if (updates.description !== undefined) item.description = updates.description.trim();
+    if (updates.quantity !== undefined) item.quantity = Math.max(1, Number(updates.quantity) || 1);
+    if (updates.unitPrice !== undefined) item.unitPrice = Number(updates.unitPrice) || 0;
+    if (updates.discount !== undefined) item.discount = Number(updates.discount) || 0;
+    if (updates.tax !== undefined) item.tax = Number(updates.tax) || 0;
+
+    item.total = updates.total !== undefined ? Number(updates.total) : ((item.quantity * item.unitPrice) - (item.discount || 0) + (item.tax || 0));
+
+    this.recalculateFolio(folio);
+
+    this.logAudit(
+      'Master Ledger Charge Correction',
+      'Folio',
+      folio.id,
+      `৳${oldTotal}`,
+      `System Owner corrected charge "${oldDesc}" from ৳${oldTotal} to ৳${item.total} on Room ${folio.roomNumber} (${folio.folioNumber}). Reason: ${updates.reason || 'Operational adjustment'}`
+    );
+
+    saveDatabase(state);
+    notify();
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState().catch(() => {});
+      }).catch(() => {});
+    } catch {}
+
+    return {
+      success: true,
+      message: `Charge corrected successfully. Folio balance recalculated to ৳${folio.balance.toLocaleString()}.`,
+      folio
+    };
+  },
+
+  getAllFolioItemsForCorrection(): { folio: Folio; item: FolioItem }[] {
+    const results: { folio: Folio; item: FolioItem }[] = [];
+    (state.folios || []).forEach(f => {
+      (f.items || []).forEach(it => {
+        results.push({ folio: f, item: it });
+      });
+    });
+    return results;
+  },
+
+  seedSampleFolioForTesting(): { success: boolean; message: string; folio: Folio } {
+    const room = state.rooms.find(r => r.operationalStatus === 'Available') || state.rooms[0];
+    if (!room) throw new Error('No rooms found in system');
+
+    const todayStr = state.settings?.currentBusinessDate || getTodayString();
+    const guestId = `gst-demo-${Date.now().toString().slice(-4)}`;
+    const guestName = 'Engr. Rafiqul Islam';
+
+    let guest = state.guests.find(g => g.fullName === guestName);
+    if (!guest) {
+      guest = this.createGuest({
+        fullName: guestName,
+        phone: '+8801711223344',
+        email: 'rafiqul.islam@demo.bd',
+        gender: 'Male',
+        nationality: 'Bangladeshi',
+        city: 'Dhaka',
+        country: 'Bangladesh',
+        idType: 'National ID (NID)',
+        idNumber: '1987542398124',
+        address: 'House 14, Road 7, Dhanmondi, Dhaka',
+        vipStatus: true,
+        notes: 'VIP Guest - Folio Testing'
+      });
+    }
+
+    const folioId = `fol-demo-${Date.now().toString().slice(-4)}`;
+    const folioNumber = `FOL-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const stayId = `sty-demo-${Date.now().toString().slice(-4)}`;
+
+    const newFolio: Folio = {
+      id: folioId,
+      folioNumber,
+      stayId,
+      guestId: guest.id,
+      guestName: guest.fullName,
+      roomNumber: room.roomNumber,
+      status: 'Open',
+      items: [
+        {
+          id: `item-${Date.now()}-1`,
+          folioId,
+          type: 'Room Charge',
+          description: `Deluxe Lake View Room Tariff - Night of ${todayStr}`,
+          quantity: 1,
+          unitPrice: room.rate || room.baseRate || 8500,
+          discount: 0,
+          tax: Math.round((room.rate || room.baseRate || 8500) * 0.15),
+          total: Math.round((room.rate || room.baseRate || 8500) * 1.15),
+          postedBy: 'Night Audit System',
+          createdAt: new Date().toISOString(),
+          reference: 'AUDIT-NIGHT-01'
+        },
+        {
+          id: `item-${Date.now()}-2`,
+          folioId,
+          type: 'Restaurant',
+          description: 'The Water Lily Restaurant - Family Buffet Dinner',
+          quantity: 2,
+          unitPrice: 2200,
+          discount: 0,
+          tax: 660,
+          total: 5060,
+          postedBy: 'POS Cashier Outlet 1',
+          createdAt: new Date().toISOString(),
+          reference: 'POS-REC-4892'
+        },
+        {
+          id: `item-${Date.now()}-3`,
+          folioId,
+          type: 'Laundry',
+          description: 'Express Laundry - 3 Pcs Formal Suit Steam Press',
+          quantity: 3,
+          unitPrice: 450,
+          discount: 0,
+          tax: 202,
+          total: 1552,
+          postedBy: 'Housekeeping Desk',
+          createdAt: new Date().toISOString(),
+          reference: 'LND-7712'
+        }
+      ],
+      subtotal: 0,
+      discountTotal: 0,
+      serviceChargeTotal: 0,
+      taxTotal: 0,
+      grandTotal: 0,
+      paidTotal: 0,
+      balance: 0,
+      openedAt: new Date().toISOString()
+    };
+
+    this.recalculateFolio(newFolio);
+
+    const newStay: Stay = {
+      id: stayId,
+      stayNumber: `STY-${Math.floor(1000 + Math.random() * 9000)}`,
+      reservationId: `res-demo-${Date.now()}`,
+      guestId: guest.id,
+      guestName: guest.fullName,
+      roomNumber: room.roomNumber,
+      roomId: room.id,
+      roomTypeName: room.roomTypeName || 'Deluxe Room',
+      rate: room.rate || 8500,
+      adults: 2,
+      children: 1,
+      checkInAt: new Date().toISOString(),
+      expectedCheckOutAt: getOffsetDate(todayStr, 2),
+      status: 'Active',
+      folioId,
+      keyCardsIssued: 2,
+      verifiedId: true
+    };
+
+    room.operationalStatus = 'Occupied';
+    state.stays.unshift(newStay);
+    state.folios.unshift(newFolio);
+
+    saveDatabase(state);
+    notify();
+
+    return {
+      success: true,
+      message: `Sample Folio ${folioNumber} created with 3 posted charges for ${guest.fullName} in Room ${room.roomNumber}.`,
+      folio: newFolio
+    };
   },
 
   // -------------------------------------------------------------
@@ -4211,6 +4440,12 @@ export const pmsService = {
     }
     const res = state.reservations.find(r => r.id === reservationId);
     if (!res) throw new Error('Reservation not found.');
+    if (res.status === 'Checked-In') {
+      throw new Error('Cannot edit a reservation that is currently Checked-In. Modifications must be made via Stay & Folio management.');
+    }
+    if (res.status === 'Cancelled') {
+      throw new Error('Cannot edit a cancelled reservation.');
+    }
 
     const oldStatus = res.status;
     const oldAssignedRoomId = res.assignedRoomId;
@@ -5789,6 +6024,10 @@ export const pmsService = {
   },
 
   updateSystemSettings(updates: Partial<SystemSetting>): { success: boolean; message: string } {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
+    }
     state.settings = {
       ...state.settings,
       ...updates

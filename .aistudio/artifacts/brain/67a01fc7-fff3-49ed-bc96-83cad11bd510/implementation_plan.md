@@ -1,67 +1,68 @@
-# Restrict Reservation Editing for Checked-In and Cancelled Bookings
+# Implementation Plan: System Owner Security, Database Isolation, and Master Ledger Correction
 
-Ensure that reservations with status `Checked-In` or `Cancelled` cannot be edited anywhere in the application, enforcing clean PMS lifecycle integrity across all views, modals, and backend services.
+Provide strict access control separation between normal users and the root System Owner (`@admin` - Labib Zunaedy), isolate development/IDE database changes through a cloud sync toggle, update the central support hotline, safeguard data wiping, and build a background Master Ledger & inline charge correction suite.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Checked-In Stays**: Once a guest is checked in, their stay is actively tracked in-house. Operational changes (e.g. room moves, extend stay, add charges, payment adjustments) are managed through the **In-House Guest Folio** and **Room Rack / Front Desk**, preventing pre-stay reservation overwrites.
-> - **Cancelled Reservations**: Cancelled bookings are archived records. They cannot be edited; only permanent deletion (hard purge) or audit review is permitted.
-> - **Active Bookings**: Only active, pre-arrival reservations (`Confirmed`, `Unconfirmed`, `Pending`) will display the **Edit Reservation** action.
+> Based on your confirmed choices:
+> 1. **System Owner Exclusivity**: Only the root account `@admin` (Labib Zunaedy) holds System Owner authority. Regular staff (front desk, housekeeping, cashiers, and standard IT/managers) will strictly see only their own staff profile details and cannot switch roles, switch staff, open staff admin, or wipe database state.
+> 2. **IDE & Database Isolation**: A dedicated manual cloud sync toggle will safeguard the live production database. In development/IDE preview mode, cloud sync to Supabase is disabled by default to protect live records.
+> 3. **Master Ledger & Billing Correction**: Both a dedicated background Master Ledger Tool and owner-only inline table editing in folios/invoices will allow correcting wrongly posted bills, room charges, or amounts in real-time without interrupting active operations.
+> 4. **Support Hotline**: Updated to `+8801330480273` across system settings, vouchers, invoices, and registration cards.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Hides and disallows the **Edit Reservation** affordance whenever a reservation has a status of `Checked-In` or `Cancelled`.
-- **Target Audience**: Front office staff, reservation agents, and hotel management.
-- **Key Value**: Prevents operational inconsistencies (such as reassigning a room or altering rates on an already checked-in or already cancelled reservation), aligning with hospitality industry PMS best practices.
+- **What It Does**:
+  - Restricts the User Account popover so normal users only see their individual staff details, shift, profile edit, and sign-out.
+  - Hides "Switch Role", "Switch Staff", "Staff Administration & Permissions", and "Reset Data to Clean State" from non-root accounts.
+  - Implements a Cloud Sync toggle preventing IDE/dev environments from overwriting production database state.
+  - Updates the central support phone number to `+8801330480273`.
+  - Introduces a background Master Ledger Editor and inline table edit controls for `@admin` to fix mistaken charges, wrong bill amounts, or miscalculated folios seamlessly.
+- **Target Audience**: Root System Owner (`@admin`), operational staff, and guests.
+- **Key Value**: Security hardening, zero unauthorized database resets, isolated development testing, and immediate live correction of accounting errors.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-### A. Reservations Directory (`src/views/ReservationsView.tsx`)
-- In the actions column of each table row:
-  - If status is `Confirmed`, `Unconfirmed`, or `Pending`: show **Print Voucher**, **Edit** (`Edit3`), **Check-In**, and **Cancel/Delete** (`Trash2`).
-  - If status is `Checked-In`: hide **Edit**; show **Print Voucher** and view options.
-  - If status is `Cancelled`: hide **Edit** and **Check-In**; show only **Print Voucher** and **Permanently Delete** (`Trash2`).
+### A. User Profile / Account Dropdown (`UserAccountDropdown.tsx`)
+- **For Normal Staff Users**:
+  - Displays only the **Staff Details** card: Name, Employee ID, Username, Email, Authority badge, Assigned Shift, and Property.
+  - Action buttons limited to: **Edit Profile / Change Name** and **Sign Out (Lock Session)**.
+  - **Tabs Hidden**: The "Switch Role" and "Switch Staff" tabs are completely removed.
+  - **Dangerous Actions Hidden**: "Staff Administration & Permissions" and "Reset Data to Clean State" are completely hidden.
+- **For Root System Owner (`@admin` - Labib Zunaedy)**:
+  - Displays all tabs ("Staff Details", "Switch Role", "Switch Staff").
+  - Displays "Staff Administration & Permissions", "Master Ledger & Charge Editor", "Cloud Sync Toggle", and the guarded "Reset Data to Clean State" button.
 
-### B. Front Desk Arrivals (`src/views/FrontDeskView.tsx`)
-- In the **Upcoming Check-Ins** table:
-  - Conditionally render the **Edit** action button only when `res.status !== 'Checked-In' && res.status !== 'Cancelled'`.
-  - For checked-in guests, front desk agents manage them from the **In-House** tab.
+### B. IDE & Production Database Sync Isolation
+- Introduce `isCloudSyncEnabled` state in `supabaseSyncService.ts`:
+  - In development preview (`ais-dev-*` or `import.meta.env.DEV`), default is `OFF` (Local Sandbox Mode).
+  - In production / deployment, default is `ON`.
+  - A persistent toggle switch in the System Owner panel and header sync indicator allows `@admin` to toggle live sync on or off at will.
+  - When disabled, IDE changes remain local to browser storage and never alter production Supabase tables.
 
-### C. Room Tape Chart & Calendar (`src/views/ReservationCalendarView.tsx`)
-- In the **Unassigned Bookings** dock:
-  - Conditionally render the **Edit** button only for non-checked-in, non-cancelled bookings.
-- In the **Reservation Details & Quick Action Modal** (opened by clicking any reservation block on the grid):
-  - When status is `Checked-In`:
-    - Display an in-house badge and note: *"Guest is currently in-house. Manage room moves & folio charges via Front Desk."*
-    - The **Edit Reservation** button is hidden.
-  - When status is `Cancelled`:
-    - Display a cancellation badge with timestamp and reason.
-    - The **Edit Reservation** button is hidden.
-    - Only the **Permanently Delete** button remains available.
-  - When status is `Confirmed` / `Pending`:
-    - Both **Edit Reservation** and **Check-In** / **Cancel** buttons are displayed.
+### C. Master Ledger & Background Charge Editor (`MasterLedgerCorrectionModal.tsx`)
+- Accessible exclusively by `@admin`:
+  - **Search & Filter**: Lookup any Folio, Room Number, Guest Name, or Transaction Code.
+  - **Live Table**: Lists all posted charges (room tariff, restaurant POS, laundry, mini-bar, VAT, service charges, payments).
+  - **Direct Inline Correction**:
+    - Edit charge description, posted amount (BDT), date, or department classification.
+    - Click **Apply Correction**: dynamically updates the transaction, recalculates folio subtotal, taxes, service charges, and balance.
+    - Logs a non-disruptive administrative audit entry (`Master Correction: Adjusted Charge TRX-XXXX by System Owner`).
+    - Pushes a live `notify()` event so any staff viewing that guest's folio sees the updated balance instantly without refreshing or logging out.
+- **Owner Inline Editing in Folio Drawer (`FolioDrawer.tsx`)**:
+  - When viewed by `@admin`, each posted line item displays an inline edit pencil button.
 
-### D. Edit Reservation Modal Safeguard (`src/components/drawers/EditReservationModal.tsx`)
-- If the modal is opened for a reservation whose status is `Checked-In` or `Cancelled`:
-  - Display a prominent informational warning: *"This reservation is [Checked-In / Cancelled] and cannot be modified."*
-  - Disable the Save Changes button and inputs to prevent accidental state corruption.
-
-### E. PMS Service Business Logic (`src/services/pmsService.ts`)
-- In `updateReservation(reservationId, updates)`:
-  - Validate:
-    ```ts
-    if (res.status === 'Checked-In') {
-      throw new Error('Cannot edit a reservation that is currently Checked-In. Modifications must be made via Stay & Folio management.');
-    }
-    if (res.status === 'Cancelled') {
-      throw new Error('Cannot edit a cancelled reservation.');
-    }
-    ```
+### D. Central Support Number
+- Update central support number across:
+  - `DEFAULT_SETTINGS.phone` in `mockPmsDatabase.ts` -> `+8801330480273`.
+  - `SettingsView.tsx` default hotline -> `+8801330480273`.
+  - `PrintableModal.tsx` header/footer default -> `+8801330480273`.
+  - Auto-migration check in `pmsService.initializeDatabase()` to update existing cached settings.
 
 ---
 
@@ -69,44 +70,54 @@ Ensure that reservations with status `Checked-In` or `Cancelled` cannot be edite
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                 Reservation Status Lifecycle                │
+│                 System Owner Permission Gate                │
 │                                                             │
-│   [Confirmed / Unconfirmed / Pending] ──────┐               │
-│         │                                   │               │
-│         │ (Edit Allowed: Dates/Room/Rate)   │               │
-│         │                                   │               │
-│         ▼                                   ▼               │
-│   [Checked-In]                         [Cancelled]          │
-│         │                                   │               │
-│         │ ❌ NO EDIT OPTION                 │ ❌ NO EDIT    │
-│         ▼                                   ▼               │
-│   Manage via In-House Folio           Purge / Audit Only    │
+│   Active User Context                                       │
+│         │                                                   │
+│         ▼                                                   │
+│   authService.isSystemOwner()                               │
+│         │                                                   │
+│   ┌─────┴─────────────────────────┐                         │
+│   ▼                               ▼                         │
+│ [Normal Staff]             [Root System Owner @admin]        │
+│ • View Own Details         • View Full Staff Details        │
+│ • Edit Profile Name        • Switch Roles & Staff           │
+│ • Sign Out                 • Staff Administration           │
+│                            • Clean Reset (0 BDT Wipe)       │
+│                            • Cloud Sync Toggle (IDE Protect)│
+│                            • Master Ledger / Charge Editor  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Component State & Handler Mapping
+### Component & Handler Mapping
 
-| Component | Location | Condition / Rule |
+| Component | Responsibility | Access Condition |
 | :--- | :--- | :--- |
-| `ReservationsView` | Table row action group | `{res.status !== 'Checked-In' && res.status !== 'Cancelled' && (<button ... Edit3 />)}` |
-| `FrontDeskView` | Arrivals row action group | `{res.status !== 'Checked-In' && res.status !== 'Cancelled' && (<button ... Edit3 />)}` |
-| `ReservationCalendarView` | Unassigned card & Detail dialog | `{selectedResForDetail.status !== 'Checked-In' && selectedResForDetail.status !== 'Cancelled' && (<button ... Edit Reservation />)}` |
-| `EditReservationModal` | Modal body & Save action | Read-only mode & warning banner if `status === 'Checked-In' \|\| status === 'Cancelled'` |
-| `pmsService` | `updateReservation()` | Throws explicit error if status is `Checked-In` or `Cancelled` |
+| `UserAccountDropdown.tsx` | Profile menu rendering | Tabs & Admin options restricted to `authService.isSystemOwner(activeUser)` |
+| `supabaseSyncService.ts` | Cloud database push/pull | Checks `isCloudSyncEnabled()`; skips cloud push in IDE preview when disabled |
+| `MasterLedgerCorrectionModal.tsx` | Master background bill/charge editor | Accessible only to `@admin` |
+| `FolioDrawer.tsx` | Guest folio detail & charges | Shows inline charge edit controls only when `authService.isSystemOwner()` |
+| `pmsService.ts` | Transaction correction & clean reset | `resetToCleanState()` and `correctFolioTransaction()` guarded with root checks |
 
 ---
 
 ## 4. Verification Plan
 
-1. **Reservations Directory**:
-   - Inspect table rows: verify confirmed reservations have the Edit button.
-   - Inspect checked-in and cancelled reservations: verify the Edit button is completely removed.
-2. **Calendar View**:
-   - Click on a green confirmed block: verify "Edit Reservation" button is shown.
-   - Click on a blue checked-in block: verify "Edit Reservation" button is absent; status note indicates active in-house stay.
-3. **Front Desk Arrivals**:
-   - Verify only valid upcoming arrivals show the Edit button.
-4. **Service Level**:
-   - Test `pmsService.updateReservation` against a checked-in reservation: ensure error is thrown.
-5. **Code Quality**:
-   - Run `lint_applet` (`tsc --noEmit`) and `compile_applet` to guarantee zero build errors.
+1. **Normal User View**:
+   - Log in as Front Desk (e.g., `@receptionist` or `@cashier`).
+   - Open User Profile dropdown: verify "Switch Role", "Switch Staff", "Staff Admin", and "Reset Data" are completely gone.
+   - Verify only own profile details, name edit, and sign out are visible.
+2. **System Owner View (`@admin`)**:
+   - Verify full tabs, switch roles/staff, and Master Ledger Editor are visible.
+   - Test "Reset Data to Clean State": confirm it resets rooms, cancels/vanishes bookings, and zeroes all BDT balances.
+3. **Database Isolation Toggle**:
+   - Toggle Cloud Sync off: verify IDE changes do not sync to Supabase.
+   - Toggle Cloud Sync on: verify manual sync succeeds.
+4. **Master Ledger & Charge Correction**:
+   - Open a folio with a posted bill (e.g. ৳5,000 charge).
+   - Use Master Ledger Editor to change amount to ৳3,500.
+   - Verify the folio balance updates immediately to ৳3,500 without page reload or disruption.
+5. **Support Hotline**:
+   - Verify settings, invoices, and vouchers display `+8801330480273`.
+6. **Build Quality**:
+   - Run `lint_applet` (`tsc --noEmit`) and `compile_applet`.

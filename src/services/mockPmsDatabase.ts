@@ -288,7 +288,7 @@ export function getSeedPendingReservations(baseDate: string): Reservation[] {
 const DEFAULT_SETTINGS: SystemSetting = {
   resortName: 'Grand Horizon Resort & Convention Center',
   address: '100 Marina Boulevard, Bayfront District',
-  phone: '+880 1713-388000',
+  phone: '+8801330480273',
   email: 'operations@lesyncpms.com',
   website: 'www.lesyncpms.com',
   logoUrl: '',
@@ -324,7 +324,7 @@ const DEFAULT_SETTINGS: SystemSetting = {
 export const SEED_USERS: User[] = [
   {
     id: 'usr-admin-1',
-    name: 'Engr. Subrata Roy',
+    name: 'Labib Zunaedy',
     username: 'admin',
     email: 'admin@lesyncpms.com',
     role: 'Super Admin',

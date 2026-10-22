@@ -15,17 +15,21 @@ import {
   UserPlus,
   Shield,
   Edit3,
-  User
+  User,
+  Wrench,
+  Database
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { rbacService } from '../../services/rbacService';
 import { authService } from '../../services/authService';
+import { supabaseSyncService } from '../../services/supabaseSyncService';
 import { UserContext } from '../../types/reportingAndRbac';
 
 interface UserAccountDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate: (route: string) => void;
+  onOpenMasterLedger?: () => void;
   position: 'header' | 'sidebar';
   activeUser: UserContext;
 }
@@ -34,10 +38,13 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
   isOpen,
   onClose,
   onNavigate,
+  onOpenMasterLedger,
   position,
   activeUser
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'switch-role' | 'switch-user'>('profile');
+  const isOwner = authService.isSystemOwner(activeUser);
+  const [cloudSyncActive, setCloudSyncActive] = useState(() => supabaseSyncService.isCloudSyncEnabled());
   const [roles, setRoles] = useState(rbacService.getRoles());
   const [users, setUsers] = useState(pmsService.getState().users || []);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -76,13 +83,18 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
     const unsubAuth = authService.subscribe(() => {
       setLiveCreds(authService.getCredentials());
     });
+    const unsubSync = supabaseSyncService.subscribe(() => {
+      setCloudSyncActive(supabaseSyncService.isCloudSyncEnabled());
+    });
     setRoles(rbacService.getRoles());
     setUsers(pmsService.getState().users || []);
     setLiveCreds(authService.getCredentials());
+    setCloudSyncActive(supabaseSyncService.isCloudSyncEnabled());
     return () => {
       unsubPms();
       unsubRbac();
       unsubAuth();
+      unsubSync();
     };
   }, [isOpen]);
 
@@ -180,41 +192,53 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
       </div>
 
       {/* Tabs Navigation for switching testing roles / viewing profile */}
-      <div className="flex border-b border-gray-200 bg-gray-50 text-[11px] font-medium text-gray-600">
-        <button
-          type="button"
-          onClick={() => setActiveTab('profile')}
-          className={`flex-1 py-2 text-center transition-colors border-b-2 ${
-            activeTab === 'profile'
-              ? 'border-amber-600 text-amber-900 font-bold bg-white'
-              : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
-          }`}
-        >
-          Staff Details
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('switch-role')}
-          className={`flex-1 py-2 text-center transition-colors border-b-2 ${
-            activeTab === 'switch-role'
-              ? 'border-amber-600 text-amber-900 font-bold bg-white'
-              : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
-          }`}
-        >
-          Switch Role
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('switch-user')}
-          className={`flex-1 py-2 text-center transition-colors border-b-2 ${
-            activeTab === 'switch-user'
-              ? 'border-amber-600 text-amber-900 font-bold bg-white'
-              : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
-          }`}
-        >
-          Switch Staff
-        </button>
-      </div>
+      {isOwner ? (
+        <div className="flex border-b border-gray-200 bg-gray-50 text-[11px] font-medium text-gray-600">
+          <button
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            className={`flex-1 py-2 text-center transition-colors border-b-2 ${
+              activeTab === 'profile'
+                ? 'border-amber-600 text-amber-900 font-bold bg-white'
+                : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            Staff Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('switch-role')}
+            className={`flex-1 py-2 text-center transition-colors border-b-2 ${
+              activeTab === 'switch-role'
+                ? 'border-amber-600 text-amber-900 font-bold bg-white'
+                : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            Switch Role
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('switch-user')}
+            className={`flex-1 py-2 text-center transition-colors border-b-2 ${
+              activeTab === 'switch-user'
+                ? 'border-amber-600 text-amber-900 font-bold bg-white'
+                : 'border-transparent hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            Switch Staff
+          </button>
+        </div>
+      ) : (
+        <div className="px-3.5 py-2 border-b border-gray-200 bg-gray-50/90 flex items-center justify-between text-[11px]">
+          <span className="font-bold text-gray-700 flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+            Staff Member Profile
+          </span>
+          <span className="font-mono text-[10px] text-gray-500 bg-gray-200/70 px-1.5 py-0.5 rounded">
+            ID: {employeeId}
+          </span>
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="p-3 max-h-64 overflow-y-auto scrollbar-thin">
@@ -308,21 +332,66 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
               </button>
             )}
 
-            {/* Direct Link to Staff Administration View */}
-            <button
-              type="button"
-              onClick={() => {
-                onNavigate('admin-users');
-                onClose();
-              }}
-              className="w-full flex items-center justify-between p-2 rounded-lg bg-amber-50 hover:bg-amber-100/80 border border-amber-200 text-amber-950 font-bold transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-amber-700" />
-                <span>Staff Administration & Permissions</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-amber-700" />
-            </button>
+            {/* System Owner Exclusive Tools (Cloud DB Sync, Master Ledger & Staff Administration) */}
+            {isOwner && (
+              <>
+                {/* Cloud DB Sync Protection Switch */}
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-700 text-white shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-emerald-400" />
+                    <span className="text-[11px] font-bold">Cloud DB Sync:</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !supabaseSyncService.isCloudSyncEnabled();
+                      supabaseSyncService.setCloudSyncEnabled(next);
+                      setCloudSyncActive(next);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition cursor-pointer ${
+                      cloudSyncActive
+                        ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-500/40'
+                        : 'bg-rose-500/30 text-rose-300 border border-rose-500/50 hover:bg-rose-500/40'
+                    }`}
+                    title={cloudSyncActive ? 'Cloud Sync is Active (Replicating to Supabase)' : 'Cloud Sync is Paused (IDE Sandbox Protected)'}
+                  >
+                    {cloudSyncActive ? 'LIVE SYNC ON' : 'SANDBOX (OFF)'}
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenMasterLedger) {
+                      onOpenMasterLedger();
+                    }
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-lg bg-indigo-50 hover:bg-indigo-100/80 border border-indigo-200 text-indigo-950 font-bold transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Wrench className="w-4 h-4 text-indigo-700" />
+                    <span>Master Ledger & Billing Editor</span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-indigo-700" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate('admin-users');
+                    onClose();
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-lg bg-amber-50 hover:bg-amber-100/80 border border-amber-200 text-amber-950 font-bold transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-amber-700" />
+                    <span>Staff Administration & Permissions</span>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-amber-700" />
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -471,20 +540,22 @@ export const UserAccountDropdown: React.FC<UserAccountDropdownProps> = ({
 
       {/* Global Actions Footer */}
       <div className="p-2.5 border-t border-gray-200 bg-gray-50 space-y-1">
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
-              pmsService.resetToCleanState();
-              onClose();
-              window.location.reload();
-            }
-          }}
-          className="w-full text-left px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 font-bold transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-          <span>Reset Data to Clean State (Vanish All Data & 0 BDT)</span>
-        </button>
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
+                pmsService.resetToCleanState();
+                onClose();
+                window.location.reload();
+              }
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-2 font-bold transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+            <span>Reset Data to Clean State (Vanish All Data & 0 BDT)</span>
+          </button>
+        )}
 
         <button
           type="button"

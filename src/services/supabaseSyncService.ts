@@ -37,6 +37,7 @@ export interface SupabaseSyncStatus {
   database: string;
   host: string;
   provider: 'Supabase' | 'PostgreSQL' | 'Local';
+  cloudSyncActive?: boolean;
   dbVersion?: string;
   isSyncing: boolean;
   lastSyncedAt: string | null;
@@ -357,16 +358,52 @@ class SupabaseSyncService {
     }
 
     this.notifyListeners();
-    return this.currentStatus;
+    return this.getStatus();
+  }
+
+  /**
+   * Determine whether cloud sync is active.
+   * In IDE/development preview (e.g. ais-dev-* or import.meta.env.DEV), default is FALSE
+   * so local test data does not alter the production database unless explicitly toggled on.
+   */
+  public isCloudSyncEnabled(): boolean {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('lesync_cloud_sync_enabled');
+    if (stored !== null) {
+      return stored === 'true';
+    }
+    const isDevPreview = (
+      window.location.hostname.includes('ais-dev-') ||
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      Boolean((import.meta as any)?.env?.DEV)
+    );
+    return !isDevPreview;
+  }
+
+  public setCloudSyncEnabled(enabled: boolean): void {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lesync_cloud_sync_enabled', String(enabled));
+    }
+    this.currentStatus.cloudSyncActive = enabled;
+    this.notifyListeners();
   }
 
   public async syncEntirePmsState(): Promise<{ success: boolean; totalEntities?: number; message?: string }> {
+    if (!this.isCloudSyncEnabled()) {
+      console.info('[Cloud Sync] Skipped: Cloud sync is paused in IDE/Dev mode to protect live database.');
+      this.currentStatus.cloudSyncActive = false;
+      this.notifyListeners();
+      return { success: true, message: 'Cloud sync paused in IDE sandbox mode. Changes kept local.' };
+    }
+
     if (this.isSyncing) {
       return { success: false, message: 'Sync operation already in progress' };
     }
 
     this.isSyncing = true;
     this.currentStatus.isSyncing = true;
+    this.currentStatus.cloudSyncActive = true;
     this.currentStatus.lastAttemptAt = new Date().toISOString();
     this.notifyListeners();
 

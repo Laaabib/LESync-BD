@@ -122,7 +122,13 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({
     setAssignedRoomId('');
   };
 
+  const isNonEditable = reservation?.status === 'Checked-In' || reservation?.status === 'Cancelled';
+
   const handleSave = () => {
+    if (isNonEditable) {
+      setError(`Cannot edit a reservation that is ${reservation?.status}.`);
+      return;
+    }
     if (!guestName.trim()) {
       setError('Guest full name is required.');
       return;
@@ -226,6 +232,22 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
+          {isNonEditable && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start space-x-2.5 text-amber-300 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <div>
+                <span className="font-bold block">
+                  {reservation.status === 'Checked-In' ? 'Reservation is Checked-In' : 'Reservation is Cancelled'}
+                </span>
+                <span className="text-amber-200/80 text-[11px] block mt-0.5">
+                  {reservation.status === 'Checked-In'
+                    ? 'Guest is currently in-house. Room changes, billing, and checkout are managed via Front Desk In-House Stays and Guest Folio.'
+                    : 'This reservation has been cancelled and cannot be edited. It can only be viewed or permanently deleted.'}
+                </span>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center space-x-2.5 text-rose-300 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -542,8 +564,8 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSubmitting}
-              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+              disabled={isSubmitting || isNonEditable}
+              className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition shadow-sm flex items-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-3.5 h-3.5" />
               <span>{isSubmitting ? 'Saving Changes...' : 'Save & Apply Updates'}</span>

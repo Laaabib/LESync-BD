@@ -10,10 +10,12 @@ import { authService, AuthSession } from '../../services/authService';
 import { rbacService } from '../../services/rbacService';
 import { PmsDatabaseState } from '../../services/mockPmsDatabase';
 import { cloudSqlSyncService, CloudSqlSyncStatus, CloudSqlHealthInfo } from '../../services/cloudSqlSyncService';
+import { supabaseSyncService } from '../../services/supabaseSyncService';
 import { CloudSqlSyncModal } from './CloudSqlSyncModal';
 import { QuickReportsMenuModal } from './QuickReportsMenuModal';
 import { UserAccountDropdown } from './UserAccountDropdown';
 import { CloudSqlSyncHeaderAlert } from './CloudSqlSyncHeaderAlert';
+import { MasterLedgerCorrectionModal } from '../modals/MasterLedgerCorrectionModal';
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -49,6 +51,8 @@ export const Header: React.FC<HeaderProps> = ({
   const [showHelp, setShowHelp] = useState<boolean>(false);
   const [showCloudSqlModal, setShowCloudSqlModal] = useState<boolean>(false);
   const [showQuickReportsModal, setShowQuickReportsModal] = useState<boolean>(false);
+  const [showMasterLedgerModal, setShowMasterLedgerModal] = useState<boolean>(false);
+  const [cloudSyncEnabled, setCloudSyncEnabled] = useState<boolean>(() => supabaseSyncService.isCloudSyncEnabled());
   const [sqlStatus, setSqlStatus] = useState<CloudSqlSyncStatus>(cloudSqlSyncService.getStatus());
   const [sqlHealth, setSqlHealth] = useState<CloudSqlHealthInfo>(cloudSqlSyncService.getHealth());
 
@@ -66,6 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
     const unsubSql = cloudSqlSyncService.subscribe((newStatus) => {
       setSqlStatus(newStatus);
       setSqlHealth(cloudSqlSyncService.getHealth());
+      setCloudSyncEnabled(supabaseSyncService.isCloudSyncEnabled());
     });
     const timer = setInterval(() => {
       const now = new Date();
@@ -78,6 +83,7 @@ export const Header: React.FC<HeaderProps> = ({
     setTime(now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     setDateStr(now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
     setSqlHealth(cloudSqlSyncService.getHealth());
+    setCloudSyncEnabled(supabaseSyncService.isCloudSyncEnabled());
 
     return () => {
       unsub();
@@ -221,6 +227,33 @@ export const Header: React.FC<HeaderProps> = ({
           onOpenFullModal={() => setShowCloudSqlModal(true)}
           isAppOwnerOrIT={isAppOwnerOrIT}
         />
+
+        {/* Dedicated Cloud DB Sync Protection Switch Button for System Owner & IT */}
+        {isAppOwnerOrIT && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !supabaseSyncService.isCloudSyncEnabled();
+              supabaseSyncService.setCloudSyncEnabled(next);
+              setCloudSyncEnabled(next);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer shadow-2xs ${
+              cloudSyncEnabled
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                : 'bg-rose-50 border-rose-300 text-rose-800 hover:bg-rose-100 ring-1 ring-rose-300/60'
+            }`}
+            title={
+              cloudSyncEnabled
+                ? 'Cloud DB Sync is ACTIVE (Replicating to Supabase). Click to pause into Sandbox mode.'
+                : 'Cloud DB Sync is PAUSED (IDE Sandbox Protected - local changes only). Click to enable live cloud sync.'
+            }
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${cloudSyncEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            <span className="font-mono text-[11px] font-bold">
+              Cloud DB: {cloudSyncEnabled ? 'SYNC ON' : 'SANDBOX (OFF)'}
+            </span>
+          </button>
+        )}
 
         {/* Notification Bell */}
         <div className="relative">
@@ -370,6 +403,7 @@ export const Header: React.FC<HeaderProps> = ({
             isOpen={showRoleMenu}
             onClose={() => setShowRoleMenu(false)}
             onNavigate={onNavigate}
+            onOpenMasterLedger={() => setShowMasterLedgerModal(true)}
             position="header"
             activeUser={activeUser}
           />
@@ -438,6 +472,14 @@ export const Header: React.FC<HeaderProps> = ({
         <CloudSqlSyncModal
           isOpen={showCloudSqlModal}
           onClose={() => setShowCloudSqlModal(false)}
+        />
+      )}
+
+      {/* System Owner Master Ledger & Background Charge Editor Modal */}
+      {showMasterLedgerModal && (
+        <MasterLedgerCorrectionModal
+          isOpen={showMasterLedgerModal}
+          onClose={() => setShowMasterLedgerModal(false)}
         />
       )}
 

@@ -1484,7 +1484,7 @@ export const DEFAULT_ROLES: RoleDefinition[] = [
 export const INITIAL_STAFF_USERS: UserContext[] = [
   {
     id: 'usr-admin-1',
-    name: 'Engr. Subrata Roy',
+    name: 'Labib Zunaedy',
     username: 'admin',
     email: 'admin@lesyncpms.com',
     roleId: 'role-super-admin',
@@ -2032,6 +2032,27 @@ class RbacManager {
     if (!u) return false;
     if (this.isSuperAdmin(u)) return true;
     return this.isDeveloperOrIT(u);
+  }
+
+  /**
+   * Determine whether a user is the primary System Owner (Labib Zunaedy / @admin)
+   * Mandate: Sensitive administrative operations (clean database reset, property provisioning /
+   * clean slate, and manual system-wide configuration) are strictly restricted to this user.
+   */
+  public isSystemOwner(user?: UserContext): boolean {
+    const u = user || this.activeUser;
+    if (!u) return false;
+    const username = (u.username || '').toLowerCase().trim();
+    const email = (u.email || '').toLowerCase().trim();
+    const name = (u.name || '').toLowerCase().trim();
+    return (
+      u.id === 'usr-admin-1' ||
+      username === 'admin' ||
+      email === 'admin@lesyncpms.com' ||
+      email === 'labibzunaedy@gmail.com' ||
+      name.includes('labib') ||
+      name.includes('zunaedy')
+    );
   }
 
   public getActiveRole(): RoleDefinition {

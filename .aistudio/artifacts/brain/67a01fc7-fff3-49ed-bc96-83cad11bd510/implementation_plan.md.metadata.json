@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for restricting the Edit Reservation option so that Checked-In and Cancelled reservations cannot be edited across Reservations Directory, Front Desk Arrivals, Calendar View, Edit Modal, and PMS Service.",
-  "updatedAt": "2026-10-19T10:50:42.783937462Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan to isolate IDE database changes via cloud sync toggle, restrict profile/account dropdown actions to System Owner @admin (Labib Zunaedy), update support hotline to +8801330480273, safeguard clean database reset exclusively for System Owner, and provide background Master Ledger & inline charge editing for correcting wrong bills/charges.",
+  "updatedAt":  "2026-10-22T04:46:11.025739485Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

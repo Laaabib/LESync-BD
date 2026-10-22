@@ -204,13 +204,15 @@ export const ReservationCalendarView: React.FC<ReservationCalendarViewProps> = (
                       >
                         Check-In
                       </button>
-                      <button
-                        onClick={() => setEditingRes(res)}
-                        className="p-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 rounded border border-slate-700 transition"
-                        title="Edit Reservation Details"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
+                      {res.status !== 'Checked-In' && res.status !== 'Cancelled' && (
+                        <button
+                          onClick={() => setEditingRes(res)}
+                          className="p-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 rounded border border-slate-700 transition"
+                          title="Edit Reservation Details"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => setDeletingRes(res)}
                         className="p-1 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 rounded border border-slate-700 hover:border-rose-700/50 transition"
@@ -445,18 +447,30 @@ export const ReservationCalendarView: React.FC<ReservationCalendarViewProps> = (
             {/* Actions Footer */}
             <div className="p-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2">
               <div className="flex items-center space-x-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const r = selectedResForDetail;
-                    setSelectedResForDetail(null);
-                    setEditingRes(r);
-                  }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 hover:border-cyan-500/50 rounded-lg font-bold text-xs flex items-center space-x-1.5 transition"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Edit Reservation</span>
-                </button>
+                {selectedResForDetail.status !== 'Checked-In' && selectedResForDetail.status !== 'Cancelled' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = selectedResForDetail;
+                      setSelectedResForDetail(null);
+                      setEditingRes(r);
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 hover:border-cyan-500/50 rounded-lg font-bold text-xs flex items-center space-x-1.5 transition"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Reservation</span>
+                  </button>
+                )}
+                {selectedResForDetail.status === 'Checked-In' && (
+                  <span className="text-[11px] text-blue-300/80 italic pr-1">
+                    In-House Stay (Manage via Stay Folio)
+                  </span>
+                )}
+                {selectedResForDetail.status === 'Cancelled' && (
+                  <span className="text-[11px] text-rose-300/80 italic pr-1">
+                    Cancelled Reservation
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -467,7 +481,7 @@ export const ReservationCalendarView: React.FC<ReservationCalendarViewProps> = (
                   className="px-3 py-1.5 bg-slate-800 hover:bg-rose-950/60 text-rose-300 border border-slate-700 hover:border-rose-500/50 rounded-lg font-bold text-xs flex items-center space-x-1.5 transition"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>Cancel / Delete</span>
+                  <span>{selectedResForDetail.status === 'Cancelled' ? 'Delete Permanently' : 'Cancel / Delete'}</span>
                 </button>
               </div>
 
