@@ -10,6 +10,8 @@ import { pmsService } from '../services/pmsService';
 import { pdfExportService } from '../services/pdfExportService';
 import { PmsDatabaseState, SEED_HALLS } from '../services/mockPmsDatabase';
 import { EventBooking, Payment } from '../types/pms';
+import { authService } from '../services/authService';
+import { getMinAllowedDate } from '../utils/dateSecurity';
 
 interface ConventionEventsViewProps {
   initialTab?: 'events' | 'function-sheets' | 'billing' | 'deposits' | 'packages' | 'halls';
@@ -29,6 +31,7 @@ export const ConventionEventsView: React.FC<ConventionEventsViewProps> = ({
   onNavigate
 }) => {
   const [db, setDb] = useState<PmsDatabaseState>(pmsService.getState());
+  const isOwner = authService.isSystemOwner();
   const [activeTab, setActiveTab] = useState<'events' | 'function-sheets' | 'billing' | 'deposits'>(
     (initialTab === 'function-sheets' || initialTab === 'billing' || initialTab === 'deposits')
       ? initialTab
@@ -1529,10 +1532,13 @@ export const ConventionEventsView: React.FC<ConventionEventsViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Event Date *</label>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">
+                    Event Date * {!isOwner && <span className="text-[10px] text-amber-600 font-normal">(No backdating)</span>}
+                  </label>
                   <input
                     type="date"
                     required
+                    min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                     value={eventDate}
                     onChange={(e) => setEventDate(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -1923,10 +1929,13 @@ export const ConventionEventsView: React.FC<ConventionEventsViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-1">Event Date *</label>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">
+                    Event Date * {!isOwner && <span className="text-[10px] text-amber-600 font-normal">(No backdating)</span>}
+                  </label>
                   <input
                     type="date"
                     required
+                    min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                     value={editEventDate}
                     onChange={(e) => setEditEventDate(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900"

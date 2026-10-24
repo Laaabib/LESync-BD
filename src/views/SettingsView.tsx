@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Settings, Building, DollarSign, Clock, ShieldAlert,
   RotateCcw, CheckCircle2, Save, Moon, Check, Percent, Hash, Layers,
   Database, Download, Upload, RefreshCw, FileSpreadsheet, HardDrive,
-  Sparkles, Trash2, BedDouble, UserCheck, Image
+  Sparkles, Trash2, BedDouble, UserCheck, Image, ShieldCheck, Lock
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { cloudSqlSyncService } from '../services/cloudSqlSyncService';
+import { authService } from '../services/authService';
+import { rbacService } from '../services/rbacService';
 
 interface SettingsProps {
   initialTab?: 'property' | 'tax' | 'service-charge' | 'numbering' | 'audit' | 'backup' | 'onboarding' | string;
@@ -16,9 +18,22 @@ interface SettingsProps {
 
 export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property', onNavigate, onNavigateToBackup }) => {
   const [db, setDb] = useState(pmsService.getState());
+  const [activeUser, setActiveUser] = useState(() => rbacService.getActiveUser());
+  const isOwner = authService.isSystemOwner(activeUser);
 
   useEffect(() => {
-    return pmsService.subscribe(setDb);
+    const unsubPms = pmsService.subscribe(setDb);
+    const unsubRbac = rbacService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
+    const unsubAuth = authService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
+    return () => {
+      unsubPms();
+      unsubRbac();
+      unsubAuth();
+    };
   }, []);
 
   // Map initial tab if it came from sidebar routes
@@ -101,6 +116,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOwner) {
+      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
+      return;
+    }
     
     // Save all parameters directly to pmsService and localStorage
     pmsService.updateSystemSettings({
@@ -147,6 +166,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
 
   const handleProvisionNewProperty = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isOwner) {
+      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
+      return;
+    }
     if (!provResortName.trim()) {
       alert('Please enter the New Property / Hotel Name.');
       return;
@@ -212,6 +235,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   };
 
   const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isOwner) {
+      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup files.');
+      return;
+    }
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -245,6 +272,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   };
 
   const handleResetData = () => {
+    if (!isOwner) {
+      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset database to clean state.');
+      return;
+    }
     if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, cancelled check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
       pmsService.resetToCleanState();
       window.location.reload();
@@ -252,6 +283,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   };
 
   const handleResetAllAccountsOnly = () => {
+    if (!isOwner) {
+      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset all financial accounts.');
+      return;
+    }
     if (window.confirm('Reset all financial accounts? All General Ledger balances, journal vouchers, and transaction BDT amounts will be reset to 0.00 BDT, while preserving room inventory and staff logins.')) {
       pmsService.resetAllAccountBalances();
       setBackupMessage({ type: 'success', text: 'All account transaction balances, vouchers, and BDT amounts have been successfully reset to 0.00 BDT.' });
@@ -275,6 +310,17 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
               <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">
                 LESync PMS
               </span>
+              {isOwner ? (
+                <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/40 flex items-center gap-1 font-mono">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  System Owner (Labib Zunaedy)
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold text-[10px] border border-slate-700 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  Staff View (Read-Only)
+                </span>
+              )}
             </div>
             <p className="text-slate-300 text-xs mt-0.5">
               Property parameters, Night Audit 06:00 AM automation, tax rules, service charge pools, document numbering, and manual data backup.
@@ -283,16 +329,16 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs (Filtered by Role-Based Access Control) */}
       <div className="flex space-x-1 bg-slate-900 border border-slate-800 p-1.5 rounded-xl overflow-x-auto scrollbar-thin">
         {[
           { id: 'property', label: 'System Settings & Property Profile', route: 'settings' },
-          { id: 'onboarding', label: '🚀 Onboard New Property (Clean Slate)', route: 'admin-onboarding' },
+          ...(isOwner ? [{ id: 'onboarding', label: '🚀 Onboard New Property (Clean Slate)', route: 'admin-onboarding' }] : []),
           { id: 'tax', label: 'Tax & VAT Rates', route: 'admin-tax' },
           { id: 'service-charge', label: 'Service Charge Rules', route: 'admin-service-charge' },
           { id: 'numbering', label: 'Document Numbering Schemes', route: 'admin-numbering' },
           { id: 'audit', label: 'Night Audit Schedule', route: 'admin-audit' },
-          { id: 'backup', label: 'Data Backup & Restore', route: 'admin-backup' }
+          ...(isOwner ? [{ id: 'backup', label: 'Data Backup & Restore', route: 'admin-backup' }] : [])
         ].map(t => (
           <button
             key={t.id}
@@ -301,7 +347,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
               setActiveTab(t.id);
               if (onNavigate && t.id !== 'backup') onNavigate(t.route);
             }}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors text-xs ${
+            className={`px-3.5 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors text-xs cursor-pointer ${
               activeTab === t.id ? 'bg-amber-500 text-slate-950 font-bold shadow-xs' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -328,10 +374,43 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
         </div>
       )}
 
-      {/* Settings Form */}
-      <form onSubmit={handleSave} className="space-y-6">
-        {/* Property Identity Tab */}
-        {activeTab === 'property' && (
+      {/* Access Restriction Guard for Sensitive Owner Tabs */}
+      {!isOwner && (activeTab === 'onboarding' || activeTab === 'backup') ? (
+        <div className="bg-slate-900 border border-rose-500/40 rounded-2xl p-8 text-center max-w-lg mx-auto space-y-4 my-8 shadow-2xl">
+          <ShieldAlert className="w-14 h-14 text-rose-400 mx-auto" />
+          <h2 className="text-base font-bold text-white">System Owner Clearance Required</h2>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            The requested administrative operation (<span className="text-rose-300 font-bold">{activeTab === 'onboarding' ? 'Property Provisioning & Clean Slate' : 'Database Backup & Restore'}</span>) involves sensitive database sanitization and system architecture changes. It is exclusively restricted to the root System Owner (<strong className="text-amber-300 font-bold">Labib Zunaedy</strong>).
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('property');
+              if (onNavigate) onNavigate('settings');
+            }}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+          >
+            ← Return to Property Profile
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Read-Only Notice for Non-System-Owner Staff */}
+          {!isOwner && (
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center space-x-2.5">
+              <Lock className="w-4 h-4 shrink-0 text-amber-400" />
+              <div>
+                <span className="font-bold">Read-Only Configuration Mode: </span>
+                <span>Manual system-wide configuration, tax rates, and document numbering schemes are locked for non-owner staff. Modifications can only be executed by the System Owner (Labib Zunaedy).</span>
+              </div>
+            </div>
+          )}
+
+          {/* Settings Form */}
+          <form onSubmit={handleSave} className="space-y-6">
+            <fieldset disabled={!isOwner} className="contents space-y-6">
+              {/* Property Identity Tab */}
+              {activeTab === 'property' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
               <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
@@ -948,13 +1027,15 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="flex items-center space-x-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow-xs text-xs self-start sm:self-auto"
-              >
-                <Save className="w-4 h-4" />
-                <span>Save Numbering Schemes</span>
-              </button>
+              {isOwner && (
+                <button
+                  type="submit"
+                  className="flex items-center space-x-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow-xs text-xs self-start sm:self-auto cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Numbering Schemes</span>
+                </button>
+              )}
             </div>
 
             {/* Sequence Formatting Controls */}
@@ -1152,54 +1233,60 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
           </div>
         )}
 
-        {activeTab !== 'onboarding' && activeTab !== 'backup' && (
-          <div className="pt-2 flex justify-end">
+            </fieldset>
+
+            {isOwner && activeTab !== 'onboarding' && activeTab !== 'backup' && (
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  className="flex items-center space-x-1.5 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow text-xs cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>
+                    {activeTab === 'tax' ? 'Save Tax & VAT Rates' :
+                     activeTab === 'service-charge' ? 'Save Service Charge Rules' :
+                     activeTab === 'numbering' ? 'Save Numbering Schemes' :
+                     activeTab === 'audit' ? 'Save Night Audit Schedule' :
+                     'Save System Settings'}
+                  </span>
+                </button>
+              </div>
+            )}
+          </form>
+        </>
+      )}
+
+      {/* Database Maintenance Tools (Exclusively Visible to Root System Owner) */}
+      {isOwner && (
+        <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 space-y-3">
+          <div className="flex items-center space-x-2">
+            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <h3 className="font-bold text-rose-400 text-sm">Development Database Utilities (System Owner Only)</h3>
+          </div>
+          <p className="text-slate-400 text-xs">
+            Permanently wipes operational and financial data or selectively resets financial ledgers. Sets all 110 rooms to Available & Clean, zeroes out all account transaction BDT balances, and vanishes previous data.
+          </p>
+          <div className="flex flex-wrap gap-3 pt-1">
             <button
-              type="submit"
-              className="flex items-center space-x-1.5 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow text-xs cursor-pointer"
+              type="button"
+              onClick={handleResetData}
+              className="flex items-center space-x-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl border border-rose-500 shadow-md transition text-xs cursor-pointer"
             >
-              <Save className="w-4 h-4" />
-              <span>
-                {activeTab === 'tax' ? 'Save Tax & VAT Rates' :
-                 activeTab === 'service-charge' ? 'Save Service Charge Rules' :
-                 activeTab === 'numbering' ? 'Save Numbering Schemes' :
-                 activeTab === 'audit' ? 'Save Night Audit Schedule' :
-                 'Save System Settings'}
-              </span>
+              <RotateCcw className="w-4 h-4" />
+              <span>Reset Data to Clean State (Vanish All Data & 0 BDT Balances)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetAllAccountsOnly}
+              className="flex items-center space-x-1.5 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl border border-amber-500 shadow-md transition text-xs cursor-pointer"
+              title="Zero out all General Ledger balances and vouchers without wiping room inventory"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Reset All Accounts & Transaction BDTs to 0.00 ৳</span>
             </button>
           </div>
-        )}
-      </form>
-
-      {/* Database Maintenance Tools */}
-      <div className="bg-slate-900 border border-rose-500/30 rounded-2xl p-5 space-y-3">
-        <div className="flex items-center space-x-2">
-          <ShieldAlert className="w-4 h-4 text-rose-400" />
-          <h3 className="font-bold text-rose-400 text-sm">Development Database Utilities</h3>
         </div>
-        <p className="text-slate-400 text-xs">
-          Permanently wipes operational and financial data or selectively resets financial ledgers. Sets all 110 rooms to Available & Clean, zeroes out all account transaction BDT balances, and vanishes previous data.
-        </p>
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button
-            type="button"
-            onClick={handleResetData}
-            className="flex items-center space-x-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl border border-rose-500 shadow-md transition text-xs cursor-pointer"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>Reset Data to Clean State (Vanish All Data & 0 BDT Balances)</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleResetAllAccountsOnly}
-            className="flex items-center space-x-1.5 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl border border-amber-500 shadow-md transition text-xs cursor-pointer"
-            title="Zero out all General Ledger balances and vouchers without wiping room inventory"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>Reset All Accounts & Transaction BDTs to 0.00 ৳</span>
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

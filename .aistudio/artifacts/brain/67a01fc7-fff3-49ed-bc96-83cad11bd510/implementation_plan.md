@@ -1,123 +1,154 @@
-# Implementation Plan: System Owner Security, Database Isolation, and Master Ledger Correction
+# System Owner Exclusive Bill/Payment Adjustments & Backdated Data Controls
 
-Provide strict access control separation between normal users and the root System Owner (`@admin` - Labib Zunaedy), isolate development/IDE database changes through a cloud sync toggle, update the central support hotline, safeguard data wiping, and build a background Master Ledger & inline charge correction suite.
+Strict role-based governance model restricting all financial corrections (bill adjustments, charge edits, folio item voiding, payment voiding, bill resettlements) and past-date entries (backdating) exclusively to System Owner Labib Zunaedy.
 
-## User Review & Critical Decisions
+---
+
+### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Based on your confirmed choices:
-> 1. **System Owner Exclusivity**: Only the root account `@admin` (Labib Zunaedy) holds System Owner authority. Regular staff (front desk, housekeeping, cashiers, and standard IT/managers) will strictly see only their own staff profile details and cannot switch roles, switch staff, open staff admin, or wipe database state.
-> 2. **IDE & Database Isolation**: A dedicated manual cloud sync toggle will safeguard the live production database. In development/IDE preview mode, cloud sync to Supabase is disabled by default to protect live records.
-> 3. **Master Ledger & Billing Correction**: Both a dedicated background Master Ledger Tool and owner-only inline table editing in folios/invoices will allow correcting wrongly posted bills, room charges, or amounts in real-time without interrupting active operations.
-> 4. **Support Hotline**: Updated to `+8801330480273` across system settings, vouchers, invoices, and registration cards.
+> The following architectural decisions were confirmed via interactive clarification:
+>
+> - **Staff Bill & Payment Experience**: Non-owner staff will have full visibility into guest folios, checkout invoices, and cashier payment histories, but all modification affordances (Edit Charge, Void Item, Void Payment, Reopen/Resettle Folio, Post Adjustment, and Void Entire Bill) will be completely hidden from the interface.
+> - **Backdated Data Entry Controls**: All date pickers across the application will dynamically bind `min={todayStr}` for non-owners, rendering past dates unselectable in the calendar. If an unauthorized client attempts to bypass the UI, core PMS services will throw strict security errors.
+> - **Enforced Functional Domains**:
+>   1. **Billing & Folios**: Charge corrections, folio item voids, bill resettlements, payment voids, adjustments, refunds.
+>   2. **General Ledger & Accounting**: Manual journal vouchers, ledger adjustments, audit corrections.
+>   3. **Front Desk & Reservations**: Check-in arrival dates, room charges, new reservations.
+>   4. **F&B POS & Convention Banquets**: Restaurant orders, bar KOTs, banquet event booking schedules.
 
 ---
 
-## 1. Overview & Core Concept
+### 1. Overview & Core Concept
 
-- **What It Does**:
-  - Restricts the User Account popover so normal users only see their individual staff details, shift, profile edit, and sign-out.
-  - Hides "Switch Role", "Switch Staff", "Staff Administration & Permissions", and "Reset Data to Clean State" from non-root accounts.
-  - Implements a Cloud Sync toggle preventing IDE/dev environments from overwriting production database state.
-  - Updates the central support phone number to `+8801330480273`.
-  - Introduces a background Master Ledger Editor and inline table edit controls for `@admin` to fix mistaken charges, wrong bill amounts, or miscalculated folios seamlessly.
-- **Target Audience**: Root System Owner (`@admin`), operational staff, and guests.
-- **Key Value**: Security hardening, zero unauthorized database resets, isolated development testing, and immediate live correction of accounting errors.
+#### What It Does
+This security update establishes an unassailable financial integrity perimeter. Regular hotel staff (receptionists, cashiers, F&B order-takers, banquet coordinators, and night auditors) can capture current-day transactions and review operational data in real-time, but are prohibited from:
+1. Tampering with or adjusting posted bills, line charges, payments, and closed folios.
+2. Backdating records to prior calendar dates, which would otherwise alter historical audit trails and closed night-audit books.
 
----
+Only the authenticated System Owner (**Labib Zunaedy**, `@admin`, `usr-admin-1`, `admin@lesyncpms.com`, `labibzunaedy@gmail.com`) possesses the administrative clearance to correct bills, void payments, and post backdated adjustments.
 
-## 2. User Experience & Visual Design
+#### Target Audience & Persona
+- **System Owner (Labib Zunaedy)**: Unrestricted master authority to rectify billing errors, override fiscal dates, and execute historical ledger adjustments.
+- **Hotel Operations Staff (Front Desk, Cashiers, Accounting, Banquet)**: Clean, high-efficiency data entry restricted to current business dates and non-destructive viewing.
 
-### A. User Profile / Account Dropdown (`UserAccountDropdown.tsx`)
-- **For Normal Staff Users**:
-  - Displays only the **Staff Details** card: Name, Employee ID, Username, Email, Authority badge, Assigned Shift, and Property.
-  - Action buttons limited to: **Edit Profile / Change Name** and **Sign Out (Lock Session)**.
-  - **Tabs Hidden**: The "Switch Role" and "Switch Staff" tabs are completely removed.
-  - **Dangerous Actions Hidden**: "Staff Administration & Permissions" and "Reset Data to Clean State" are completely hidden.
-- **For Root System Owner (`@admin` - Labib Zunaedy)**:
-  - Displays all tabs ("Staff Details", "Switch Role", "Switch Staff").
-  - Displays "Staff Administration & Permissions", "Master Ledger & Charge Editor", "Cloud Sync Toggle", and the guarded "Reset Data to Clean State" button.
-
-### B. IDE & Production Database Sync Isolation
-- Introduce `isCloudSyncEnabled` state in `supabaseSyncService.ts`:
-  - In development preview (`ais-dev-*` or `import.meta.env.DEV`), default is `OFF` (Local Sandbox Mode).
-  - In production / deployment, default is `ON`.
-  - A persistent toggle switch in the System Owner panel and header sync indicator allows `@admin` to toggle live sync on or off at will.
-  - When disabled, IDE changes remain local to browser storage and never alter production Supabase tables.
-
-### C. Master Ledger & Background Charge Editor (`MasterLedgerCorrectionModal.tsx`)
-- Accessible exclusively by `@admin`:
-  - **Search & Filter**: Lookup any Folio, Room Number, Guest Name, or Transaction Code.
-  - **Live Table**: Lists all posted charges (room tariff, restaurant POS, laundry, mini-bar, VAT, service charges, payments).
-  - **Direct Inline Correction**:
-    - Edit charge description, posted amount (BDT), date, or department classification.
-    - Click **Apply Correction**: dynamically updates the transaction, recalculates folio subtotal, taxes, service charges, and balance.
-    - Logs a non-disruptive administrative audit entry (`Master Correction: Adjusted Charge TRX-XXXX by System Owner`).
-    - Pushes a live `notify()` event so any staff viewing that guest's folio sees the updated balance instantly without refreshing or logging out.
-- **Owner Inline Editing in Folio Drawer (`FolioDrawer.tsx`)**:
-  - When viewed by `@admin`, each posted line item displays an inline edit pencil button.
-
-### D. Central Support Number
-- Update central support number across:
-  - `DEFAULT_SETTINGS.phone` in `mockPmsDatabase.ts` -> `+8801330480273`.
-  - `SettingsView.tsx` default hotline -> `+8801330480273`.
-  - `PrintableModal.tsx` header/footer default -> `+8801330480273`.
-  - Auto-migration check in `pmsService.initializeDatabase()` to update existing cached settings.
+#### Key Value
+Eliminates cashier fraud, unauthorized discounts, retro-active folio manipulation, and discrepancy in NBR tax and service charge reports by freezing closed periods and enforcing single-owner financial correction.
 
 ---
 
-## 3. Technical Architecture & Data Strategy
+### 2. User Experience & Visual Design
+
+#### Key User Flows
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 System Owner Permission Gate                │
-│                                                             │
-│   Active User Context                                       │
-│         │                                                   │
-│         ▼                                                   │
-│   authService.isSystemOwner()                               │
-│         │                                                   │
-│   ┌─────┴─────────────────────────┐                         │
-│   ▼                               ▼                         │
-│ [Normal Staff]             [Root System Owner @admin]        │
-│ • View Own Details         • View Full Staff Details        │
-│ • Edit Profile Name        • Switch Roles & Staff           │
-│ • Sign Out                 • Staff Administration           │
-│                            • Clean Reset (0 BDT Wipe)       │
-│                            • Cloud Sync Toggle (IDE Protect)│
-│                            • Master Ledger / Charge Editor  │
-└─────────────────────────────────────────────────────────────┘
+[ Staff User Interaction ]
+      │
+      ├─► Opens Guest Folio Drawer / Billing Views
+      │     └─► View-Only: Line items, payment rows, and receipts visible
+      │     └─► Hidden: Edit Charge (Pencil), Void (Trash), Resettle, and Adjustment buttons
+      │
+      └─► Opens Any Booking / Payment / Journal Date Picker
+            └─► Calendar Popup: All dates before current business date are greyed out & disabled
+            └─► Input Attribute: min="YYYY-MM-DD" enforced natively
+
+[ System Owner Interaction (Labib Zunaedy) ]
+      │
+      ├─► Opens Guest Folio Drawer / Billing Views
+      │     └─► Full Action Suite: Edit Charge, Void Line, Resettle Folio, Adjustment, Void Payment
+      │     └─► Indicator: Amber "System Owner Clearance" badge on financial action panels
+      │
+      └─► Opens Any Booking / Payment / Journal Date Picker
+            └─► Unlocked Calendar: Can select historical dates (yesterday, last month, past years)
+            └─► Subtle Audit Notice: "Backdated Entry - System Owner Authorization Logged"
 ```
 
-### Component & Handler Mapping
-
-| Component | Responsibility | Access Condition |
-| :--- | :--- | :--- |
-| `UserAccountDropdown.tsx` | Profile menu rendering | Tabs & Admin options restricted to `authService.isSystemOwner(activeUser)` |
-| `supabaseSyncService.ts` | Cloud database push/pull | Checks `isCloudSyncEnabled()`; skips cloud push in IDE preview when disabled |
-| `MasterLedgerCorrectionModal.tsx` | Master background bill/charge editor | Accessible only to `@admin` |
-| `FolioDrawer.tsx` | Guest folio detail & charges | Shows inline charge edit controls only when `authService.isSystemOwner()` |
-| `pmsService.ts` | Transaction correction & clean reset | `resetToCleanState()` and `correctFolioTransaction()` guarded with root checks |
+#### Visual Identity & SaaS Aesthetics
+- **Zero-Pill Discipline**: Statuses and metadata render as clean, unboxed typography with tabular numerals (`font-mono tabular-nums`).
+- **Owner Mode Accent**: System Owner action areas use subtle amber highlight tones (`bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20`) with clear typography rather than noisy badge clusters.
+- **Calendar Disabled State**: Date picker elements apply standard disabled opacity (`disabled:opacity-40 disabled:cursor-not-allowed`) for previous dates.
+- **Auditing Transparency**: When the System Owner performs a correction or posts a backdated entry, an instant audit record is written to `pmsService.logAudit` documenting the previous value, new value, and authorized user.
 
 ---
 
-## 4. Verification Plan
+### 3. Key Product Decisions & Trade-Offs
 
-1. **Normal User View**:
-   - Log in as Front Desk (e.g., `@receptionist` or `@cashier`).
-   - Open User Profile dropdown: verify "Switch Role", "Switch Staff", "Staff Admin", and "Reset Data" are completely gone.
-   - Verify only own profile details, name edit, and sign out are visible.
-2. **System Owner View (`@admin`)**:
-   - Verify full tabs, switch roles/staff, and Master Ledger Editor are visible.
-   - Test "Reset Data to Clean State": confirm it resets rooms, cancels/vanishes bookings, and zeroes all BDT balances.
-3. **Database Isolation Toggle**:
-   - Toggle Cloud Sync off: verify IDE changes do not sync to Supabase.
-   - Toggle Cloud Sync on: verify manual sync succeeds.
-4. **Master Ledger & Charge Correction**:
-   - Open a folio with a posted bill (e.g. ৳5,000 charge).
-   - Use Master Ledger Editor to change amount to ৳3,500.
-   - Verify the folio balance updates immediately to ৳3,500 without page reload or disruption.
-5. **Support Hotline**:
-   - Verify settings, invoices, and vouchers display `+8801330480273`.
-6. **Build Quality**:
-   - Run `lint_applet` (`tsc --noEmit`) and `compile_applet`.
+#### Decision 1: Hidden Actions vs. Disabled Tooltips
+- **Chosen Approach**: Completely hide financial correction buttons (Void, Resettle, Edit Charge, Post Adjustment) for non-owners, rather than showing disabled grey buttons.
+- **Rationale**: Reduces visual clutter for frontline cashiers, prevents cognitive friction, and strictly follows the user's explicit preference ("Allow staff to view bills with edit actions hidden").
+
+#### Decision 2: Two-Tier Defense Architecture
+- **Chosen Approach**: Combine HTML5 date picker constraints (`min={isOwner ? undefined : todayStr}`) with strict runtime checks in `pmsService.ts`.
+- **Rationale**: UI-level constraints prevent user frustration before form submission; service-level invariants guarantee that even direct script injection or payload modification cannot write backdated records without System Owner clearance.
+
+#### Decision 3: Centralized Date Security Utility
+- **Chosen Approach**: Implement a shared utility `src/utils/dateSecurity.ts` providing helper functions (`getMinAllowedDate`, `validateDateEntry`, `isBackdated`) used consistently across all views and modals.
+- **Rationale**: Avoids redundant `Date.now()` logic across 10+ different component files and provides a single point of maintenance for business date handling.
+
+---
+
+### 4. Technical Architecture & Data Strategy
+
+#### System Diagram
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        User Session Context                            │
+│           authService.isSystemOwner(rbacService.getActiveUser())       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  ▼                                   ▼
+         [ System Owner: TRUE ]              [ System Owner: FALSE ]
+                  │                                   │
+                  ├─► Bill Edit Controls: Visible     ├─► Bill Edit Controls: Hidden
+                  ├─► Date Pickers: Unlocked          ├─► Date Pickers: min={todayStr}
+                  └─► Service Actions: Permitted      └─► Service Actions: Denied (Throws Error)
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   pmsService Enforcement Matrix                        │
+├────────────────────────────────┬───────────────────────────────────────┤
+│ Operation                      │ Authorization Rule                    │
+├────────────────────────────────┼───────────────────────────────────────┤
+│ correctFolioItem()             │ isSystemOwner() Required (Strict)     │
+│ voidFolioItem()                │ isSystemOwner() Required (Strict)     │
+│ postFolioAdjustment()          │ isSystemOwner() Required (Strict)     │
+│ resettleFolio()                │ isSystemOwner() Required (Strict)     │
+│ voidEntireFolio()              │ isSystemOwner() Required (Strict)     │
+│ voidPayment()                  │ isSystemOwner() Required (Strict)     │
+│ createJournalVoucher(date)     │ date < today => isSystemOwner()       │
+│ recordFolioPayment(date)       │ date < today => isSystemOwner()       │
+│ createReservation(arrival)     │ arrival < today => isSystemOwner()    │
+│ createEventBooking(date)       │ date < today => isSystemOwner()       │
+│ createRestaurantOrder(date)    │ date < today => isSystemOwner()       │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Files to Update During Execution Phase
+
+1. **`src/utils/dateSecurity.ts` (New Utility)**:
+   - `getMinAllowedDate(isOwner: boolean): string | undefined`
+   - `isPastDate(dateStr: string, businessDate?: string): boolean`
+   - `assertOwnerForBackdate(dateStr: string, isOwner: boolean, operationName: string): void`
+
+2. **`src/services/pmsService.ts`**:
+   - Guard `voidFolioItem()`, `postFolioAdjustment()`, `resettleFolio()`, `voidEntireFolio()`, and `voidPayment()` to require `isSystemOwner()`.
+   - In `recordFolioPayment()`, `createJournalVoucher()`, `createReservation()`, `createEventBooking()`, and `createRestaurantOrder()`, check if the provided date is prior to current business date; if so, enforce `isSystemOwner()`.
+
+3. **`src/components/drawers/FolioDrawer.tsx`**:
+   - Detect `isOwner = authService.isSystemOwner(rbacService.getActiveUser())`.
+   - Hide Edit Charge button, Void Line Item button, Reopen/Resettle button, Void Entire Folio button, and Adjustment tab when `!isOwner`.
+
+4. **`src/views/BillingFoliosView.tsx` & `src/views/BillingPaymentsView.tsx`**:
+   - Hide Void Payment and Resettle triggers for non-owners.
+
+5. **`src/views/AccountingLedgerView.tsx`**:
+   - Enforce `min={isOwner ? undefined : todayStr}` in the Manual Journal Voucher date picker.
+   - Display informative System Owner clearance badge.
+
+6. **`src/components/drawers/NewReservationModal.tsx` & `src/components/drawers/QuickCheckInDrawer.tsx`**:
+   - Enforce `min={isOwner ? undefined : todayStr}` for arrival/check-in dates.
+
+7. **`src/views/ConventionEventsView.tsx` & `src/views/RestaurantView.tsx`**:
+   - Enforce `min={isOwner ? undefined : todayStr}` for banquet event dates and POS order dates.

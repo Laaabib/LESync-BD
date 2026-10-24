@@ -22,9 +22,14 @@ if (typeof window !== 'undefined') {
     .then((r) => r.json())
     .then((data) => {
       if (data?.url && data?.key) {
-        _serverFetchedUrl = data.url;
-        _serverFetchedKey = data.key;
-        _supabaseClientInstance = null; // Re-initialize with server-provided credentials
+        if (_serverFetchedUrl !== data.url || _serverFetchedKey !== data.key) {
+          _serverFetchedUrl = data.url;
+          _serverFetchedKey = data.key;
+          // Only invalidate client if server credentials differ from current active cached client
+          if (_cachedUrl && _cachedKey && (_cachedUrl !== data.url || _cachedKey !== data.key)) {
+            _supabaseClientInstance = null;
+          }
+        }
       }
     })
     .catch(() => {});
@@ -134,8 +139,10 @@ export function getSupabaseClient(): SupabaseClient | null {
   try {
     _supabaseClientInstance = createClient(config.url, safeKey, {
       auth: {
+        storageKey: 'lesync_pms_supabase_auth',
         persistSession: true,
         autoRefreshToken: true,
+        detectSessionInUrl: false,
       },
     });
     _cachedUrl = config.url;
@@ -147,7 +154,12 @@ export function getSupabaseClient(): SupabaseClient | null {
     if (safeKey !== DEFAULT_SUPABASE_ANON_KEY) {
       try {
         _supabaseClientInstance = createClient(config.url, DEFAULT_SUPABASE_ANON_KEY, {
-          auth: { persistSession: true, autoRefreshToken: true },
+          auth: {
+            storageKey: 'lesync_pms_supabase_auth',
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: false,
+          },
         });
         _cachedUrl = config.url;
         _cachedKey = DEFAULT_SUPABASE_ANON_KEY;
@@ -181,7 +193,6 @@ export async function testSupabaseClientConnection(url?: string, key?: string): 
   }
 
   try {
-    const client = createClient(targetUrl, targetKey);
     // Ping Supabase public settings / health endpoint
     const response = await fetch(`${targetUrl.replace(/\/+$/, '')}/auth/v1/health`, {
       headers: {

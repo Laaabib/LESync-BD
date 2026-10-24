@@ -299,7 +299,13 @@ class UserErrorTrackerService {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          this.errors = parsed;
+          // Filter out benign Vite HMR and WebSocket disconnection errors
+          this.errors = parsed.filter(
+            (e: any) =>
+              !e?.errorMessage?.includes('WebSocket closed without opened') &&
+              !e?.errorMessage?.includes('@vite/client') &&
+              !e?.stackTrace?.includes('@vite/client')
+          );
           return;
         }
       }
@@ -372,6 +378,17 @@ class UserErrorTrackerService {
     }, { passive: true });
   }
 
+  private isIgnoredDevError(message: string, stack?: string, filename?: string): boolean {
+    const text = `${message} ${stack || ''} ${filename || ''}`.toLowerCase();
+    return (
+      text.includes('websocket closed without opened') ||
+      text.includes('@vite/client') ||
+      text.includes('vite-hmr') ||
+      text.includes('chrome-extension://') ||
+      text.includes('moz-extension://')
+    );
+  }
+
   public installGlobalErrorHandlers() {
     if (this.isHandlerInstalled || typeof window === 'undefined') return;
     this.isHandlerInstalled = true;
@@ -379,10 +396,16 @@ class UserErrorTrackerService {
     // Global Uncaught Exceptions
     window.addEventListener('error', (event) => {
       try {
+        const msg = event.message || '';
+        const stack = event.error?.stack || `${event.filename}:${event.lineno}:${event.colno}`;
+        if (this.isIgnoredDevError(msg, stack, event.filename)) {
+          return;
+        }
+
         this.trackError({
-          errorMessage: event.message || 'Unknown Uncaught Exception',
+          errorMessage: msg || 'Unknown Uncaught Exception',
           errorName: event.error?.name || 'Error',
-          stackTrace: event.error?.stack || `${event.filename}:${event.lineno}:${event.colno}`,
+          stackTrace: stack,
           severity: 'HIGH',
           category: 'UI / Crash'
         });
@@ -396,10 +419,17 @@ class UserErrorTrackerService {
       try {
         const reason = event.reason;
         const msg = typeof reason === 'string' ? reason : (reason?.message || JSON.stringify(reason) || 'Unhandled Promise Rejection');
+        const stack = reason?.stack || '';
+        if (this.isIgnoredDevError(msg, stack)) {
+          // Suppress browser console noise for benign HMR websocket aborts
+          event.preventDefault();
+          return;
+        }
+
         this.trackError({
           errorMessage: msg,
           errorName: reason?.name || 'UnhandledRejection',
-          stackTrace: reason?.stack || 'No stack trace available for promise rejection',
+          stackTrace: stack || 'No stack trace available for promise rejection',
           severity: 'HIGH',
           category: 'Network / API Failure'
         });

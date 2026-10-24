@@ -191,6 +191,23 @@ class RealtimeSyncManager {
       return;
     }
 
+    // On serverless environments (Vercel, lesyncpms.site on Vercel), persistent WebSockets are not supported at the edge.
+    // Gracefully activate the high-speed BroadcastChannel & HTTP sync mesh without attempting a failing socket handshake.
+    const isServerlessEdge = 
+      window.location.hostname.includes('vercel.app') || 
+      window.location.hostname.includes('lesyncpms.site') || 
+      window.location.hostname.includes('lesyncpms');
+
+    if (isServerlessEdge) {
+      this.wsFallbackActive = true;
+      this.isConnected = true;
+      if (this.connectedDevices.length === 0) {
+        this.connectedDevices = [this.getCurrentDevice()];
+      }
+      this.notify();
+      return;
+    }
+
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;

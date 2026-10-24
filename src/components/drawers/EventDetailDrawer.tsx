@@ -9,6 +9,8 @@ import { pmsService } from '../../services/pmsService';
 import { EventBooking, PaymentMethod, EventBookingItem } from '../../types/pms';
 import { BDCardAndPaymentSelector } from '../common/BDCardAndPaymentSelector';
 import { PaymentTenderDetails } from '../../constants/paymentConfig';
+import { authService } from '../../services/authService';
+import { getMinAllowedDate } from '../../utils/dateSecurity';
 
 interface EventDetailDrawerProps {
   isOpen: boolean;
@@ -28,6 +30,7 @@ export const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
   onSuccess
 }) => {
   const [db, setDb] = useState(pmsService.getState());
+  const isOwner = authService.isSystemOwner();
   const event = db.eventBookings.find(e => e.id === eventId);
 
   // Active view tab inside drawer
@@ -775,10 +778,13 @@ export const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-[11px] font-bold text-slate-300 block mb-1">Event Date *</label>
+                  <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                    Event Date * {!isOwner && <span className="text-[10px] text-amber-500 font-normal">(No backdating)</span>}
+                  </label>
                   <input
                     type="date"
                     required
+                    min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                     value={editEventDate}
                     onChange={(e) => setEditEventDate(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-xs font-mono"

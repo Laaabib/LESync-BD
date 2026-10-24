@@ -36,6 +36,22 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   const [selectedActivityUserId, setSelectedActivityUserId] = useState<string | undefined>(undefined);
   const [selectedErrorUserId, setSelectedErrorUserId] = useState<string | undefined>(undefined);
 
+  // Current logged in user & System Owner status
+  const [currentUser, setCurrentUser] = useState<UserContext | null>(() => rbacService.getActiveUser());
+  const isOwner = useMemo(() => authService.isSystemOwner(currentUser), [currentUser]);
+
+  useEffect(() => {
+    const checkActiveUser = () => {
+      setCurrentUser(rbacService.getActiveUser());
+    };
+    const unsubRbac = rbacService.subscribe(checkActiveUser);
+    const unsubAuth = authService.subscribe(checkActiveUser);
+    return () => {
+      unsubRbac();
+      unsubAuth();
+    };
+  }, []);
+
   const resolveTab = (tab?: string): AdminTabType => {
     if (!tab) return 'users';
     if (tab === 'admin-permissions' || tab === 'permissions') return 'permissions';
@@ -280,6 +296,12 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   };
 
   const handleOpenEditUser = (user: UserContext) => {
+    const isTargetRootOwner = user.id === 'usr-admin-1' || authService.isSystemOwner(user);
+    if (isTargetRootOwner && !isOwner) {
+      showToast('System Owner (Labib Zunaedy) account can only be edited by the System Owner.', 'error');
+      return;
+    }
+
     const cred = credentials[user.id] || authService.getCredentials()[user.id] || {
       username: user.username || user.email.split('@')[0],
       employeeId: 'EMP-001',
@@ -316,6 +338,17 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                         roleName.toLowerCase().includes('super admin') || 
                         roleName.toLowerCase().includes('super administrator') ||
                         editingUserId === 'usr-admin-1';
+
+    // Strict Security Guard: Only System Owner (Labib Zunaedy) can grant or edit Super Administrator status
+    if (isSuperRole && !isOwner) {
+      showToast('Security Alert: Only System Owner (Labib Zunaedy) has clearance to grant or edit Super Administrator clearance.', 'error');
+      return;
+    }
+
+    if (editingUserId === 'usr-admin-1' && !isOwner) {
+      showToast('Permission Denied: Only Labib Zunaedy can modify the root system owner account.', 'error');
+      return;
+    }
 
     if (isSuperRole) {
       targetRoleId = 'role-super-admin';
@@ -367,8 +400,8 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   };
 
   const handleToggleUserStatus = (user: UserContext) => {
-    if (user.id === 'usr-admin-1' || user.roleName === 'Super Admin') {
-      showToast('The Root Super Admin account cannot be deactivated.', 'error');
+    if (user.id === 'usr-admin-1' || user.roleName === 'Super Admin' || authService.isSystemOwner(user)) {
+      showToast('The System Owner (Labib Zunaedy) account cannot be deactivated or locked.', 'error');
       return;
     }
     const cred = credentials[user.id];
@@ -388,8 +421,12 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   };
 
   const handleDeleteUser = (user: UserContext) => {
-    if (user.id === 'usr-admin-1' || user.roleName === 'Super Admin') {
-      showToast('The Root Super Admin account cannot be deleted.', 'error');
+    if (user.id === 'usr-admin-1' || user.roleName === 'Super Admin' || authService.isSystemOwner(user)) {
+      showToast('The System Owner (Labib Zunaedy) root account cannot be deleted under any circumstances.', 'error');
+      return;
+    }
+    if (!isOwner && (user.roleId === 'role-super-admin' || user.roleName.toLowerCase().includes('super admin'))) {
+      showToast('Only System Owner (Labib Zunaedy) can delete Super Administrator accounts.', 'error');
       return;
     }
     setDeletingUser(user);
@@ -417,6 +454,11 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
   // INDIVIDUAL USER PERMISSIONS OVERRIDES
   // -------------------------------------------------------------
   const handleOpenUserPermissions = (user: UserContext) => {
+    const isTargetRootOwner = user.id === 'usr-admin-1' || authService.isSystemOwner(user);
+    if (isTargetRootOwner && !isOwner) {
+      showToast('System Owner root permissions can only be viewed or modified by Labib Zunaedy.', 'error');
+      return;
+    }
     const cred = credentials[user.id];
     const isInactive = cred ? cred.status !== 'Active' : false;
     if (isInactive) {
@@ -637,6 +679,17 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
               <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200 font-mono">
                 ENTERPRISE GOVERNANCE
               </span>
+              {isOwner ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800 border border-amber-500/30 font-bold text-[10px] flex items-center gap-1 font-mono">
+                  <Sparkles className="w-3 h-3 text-amber-600" />
+                  System Owner (Labib Zunaedy)
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300 font-bold text-[10px] flex items-center gap-1 font-mono">
+                  <Shield className="w-3 h-3 text-slate-500" />
+                  Staff Administrator View
+                </span>
+              )}
             </div>
             <p className="text-gray-500 text-xs mt-0.5">
               Role-based access control, individual permission overrides, bill resettle & void authorities, and operational approval workflows.
@@ -958,7 +1011,7 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     const isLocked = cred.lockedUntil && cred.lockedUntil > Date.now();
                     const isInactive = cred.status !== 'Active' || (u as any).active === false;
                     const hasOverrides = (u.customPermissions && u.customPermissions.length > 0) || (u.deniedPermissions && u.deniedPermissions.length > 0);
-                    const isRootAdmin = u.id === 'usr-admin-1' || u.roleName === 'Super Admin';
+                    const isRootAdmin = u.id === 'usr-admin-1' || u.roleName === 'Super Admin' || authService.isSystemOwner(u);
 
                     return (
                       <tr key={u.id} className="hover:bg-gray-50/80 transition-colors">
@@ -1065,15 +1118,21 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                             {/* Individual Permissions Button */}
                             <button
                               onClick={() => handleOpenUserPermissions(u)}
-                              disabled={isInactive}
+                              disabled={isInactive || (isRootAdmin && !isOwner)}
                               className={`px-2.5 py-1 rounded font-bold text-[11px] transition-colors flex items-center space-x-1 ${
-                                isInactive
+                                isInactive || (isRootAdmin && !isOwner)
                                   ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed opacity-60'
                                   : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300'
                               }`}
-                              title={isInactive ? 'Account is inactive — active permissions are disabled' : 'Configure individual permissions overrides for this user'}
+                              title={
+                                isRootAdmin && !isOwner
+                                  ? 'Root clearance permissions can only be managed by Labib Zunaedy'
+                                  : isInactive
+                                  ? 'Account is inactive — active permissions are disabled'
+                                  : 'Configure individual permissions overrides for this user'
+                              }
                             >
-                              <Key className={`w-3 h-3 ${isInactive ? 'text-gray-400' : 'text-amber-600'}`} />
+                              <Key className={`w-3 h-3 ${isInactive || (isRootAdmin && !isOwner) ? 'text-gray-400' : 'text-amber-600'}`} />
                               <span>{isInactive ? 'Inactive' : 'Permissions'}</span>
                             </button>
 
@@ -1102,12 +1161,21 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                               </button>
                             )}
 
-                            <button
-                              onClick={() => handleOpenEditUser(u)}
-                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[11px] transition-colors shadow-xs"
-                            >
-                              Edit
-                            </button>
+                            {isRootAdmin && !isOwner ? (
+                              <span
+                                className="px-2.5 py-1 bg-slate-100 text-slate-400 border border-slate-200 rounded font-bold text-[11px] cursor-not-allowed"
+                                title="Root owner account can only be edited by Labib Zunaedy"
+                              >
+                                Owner Only
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleOpenEditUser(u)}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-[11px] transition-colors shadow-xs"
+                              >
+                                Edit
+                              </button>
+                            )}
 
                             {!isRootAdmin && (
                               <button
@@ -1788,16 +1856,18 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     onChange={e => {
                       const newDept = e.target.value as any;
                       setFormDepartment(newDept);
-                      if (newDept === 'Executive Management') {
+                      if (newDept === 'Executive Management' && isOwner) {
                         setFormRoleId('role-super-admin');
                         setFormDataScope('Enterprise');
                       }
                     }}
                     className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded text-xs font-medium"
                   >
-                    {departments.map(d => (
-                      <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
+                    {departments
+                      .filter(d => isOwner || d.name !== 'Executive Management')
+                      .map(d => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                      ))}
                   </select>
                 </div>
 
@@ -1816,9 +1886,11 @@ export const AdminUsersView: React.FC<AdminUsersViewProps> = ({ initialTab = 'us
                     }}
                     className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded text-xs font-medium"
                   >
-                    {roles.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
+                    {roles
+                      .filter(r => isOwner || (r.id !== 'role-super-admin' && !r.name.toLowerCase().includes('super admin')))
+                      .map(r => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
                   </select>
                 </div>
 

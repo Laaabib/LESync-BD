@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to isolate IDE database changes via cloud sync toggle, restrict profile/account dropdown actions to System Owner @admin (Labib Zunaedy), update support hotline to +8801330480273, safeguard clean database reset exclusively for System Owner, and provide background Master Ledger & inline charge editing for correcting wrong bills/charges.",
-  "updatedAt":  "2026-10-22T04:46:11.025739485Z",
+  "summary":  "Comprehensive architectural blueprint to restrict bill corrections, payment adjustments, folio voiding/resettlements, and all backdated data entry strictly to System Owner Labib Zunaedy across Billing, Accounting, Front Office, and F&B/Banquet modules.",
+  "updatedAt":  "2026-10-22T07:55:04.312942535Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

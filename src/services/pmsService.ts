@@ -1080,6 +1080,14 @@ export const pmsService = {
     const dep = new Date(data.departureDate);
     const nights = Math.max(1, Math.round((dep.getTime() - arr.getTime()) / (1000 * 60 * 60 * 24)));
     const todayStr = new Date().toISOString().split('T')[0];
+    const benchmarkDate = state.settings?.currentBusinessDate || todayStr;
+    const arrivalDateStr = data.arrivalDate.split('T')[0];
+    if (arrivalDateStr < benchmarkDate) {
+      const currentUser = this.getCurrentUser();
+      if (!this.isSystemOwner(currentUser)) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to create back-dated reservations (arrival date: ${arrivalDateStr}).`);
+      }
+    }
 
     // Multi-room or single room processing
     let processedAllocatedRooms: AllocatedRoom[] | undefined = undefined;
@@ -2197,7 +2205,15 @@ export const pmsService = {
     applyTax?: boolean;
     reference?: string;
     allowStopPostOverride?: boolean;
+    date?: string;
   }): FolioItem {
+    if (itemData.date) {
+      const benchmarkDate = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+      const dateStr = itemData.date.split('T')[0];
+      if (dateStr < benchmarkDate && !this.isSystemOwner(this.getCurrentUser())) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to post backdated charges (${dateStr}).`);
+      }
+    }
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found');
 
@@ -2222,7 +2238,7 @@ export const pmsService = {
       tax,
       total: lineTotal,
       postedBy: state.currentUser.name,
-      createdAt: new Date().toISOString(),
+      createdAt: itemData.date ? new Date(itemData.date).toISOString() : new Date().toISOString(),
       reference: itemData.reference
     };
 
@@ -2261,6 +2277,15 @@ export const pmsService = {
   }): Payment {
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found');
+
+    const benchmarkDate = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const transferDateStr = paymentData.bankTransferDate ? paymentData.bankTransferDate.split('T')[0] : undefined;
+    if (transferDateStr && transferDateStr < benchmarkDate) {
+      const currentUser = this.getCurrentUser();
+      if (!this.isSystemOwner(currentUser)) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to post back-dated payment transactions (payment date: ${transferDateStr}).`);
+      }
+    }
 
     const txnNumber = `TXN-2026-09${state.payments.length + 10}`;
     const payment: Payment = {
@@ -2392,6 +2417,11 @@ export const pmsService = {
     amount: number;
     reason?: string;
   }): FolioItem {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the System Owner (Labib Zunaedy) is authorized to post bill or folio balance adjustments.');
+    }
+
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found');
 
@@ -2642,7 +2672,15 @@ export const pmsService = {
     postToFolio?: boolean;
     items: { menuItemId?: string; name?: string; quantity: number; unitPrice?: number; totalPrice?: number }[];
     notes?: string;
+    date?: string;
   }): RestaurantOrder {
+    if (params.date) {
+      const benchmarkDate = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+      const dateStr = params.date.split('T')[0];
+      if (dateStr < benchmarkDate && !this.isSystemOwner(this.getCurrentUser())) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to create backdated restaurant orders (${dateStr}).`);
+      }
+    }
     const orderItems = params.items.map(it => {
       const item = it.menuItemId ? state.menuItems.find(m => m.id === it.menuItemId) : undefined;
       const unitPrice = it.unitPrice || item?.price || 0;
@@ -2711,7 +2749,7 @@ export const pmsService = {
       total,
       folioId,
       createdBy: state.currentUser.name,
-      createdAt: new Date().toISOString()
+      createdAt: params.date ? new Date(params.date).toISOString() : new Date().toISOString()
     };
 
     state.restaurantOrders.unshift(newOrder);
@@ -2902,6 +2940,15 @@ export const pmsService = {
   }): EventBooking {
     const hall = state.halls.find(h => h.id === eventData.hallId);
     if (!hall) throw new Error('Convention hall not found');
+
+    const benchmarkDate = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const eventDateStr = eventData.eventDate.split('T')[0];
+    if (eventDateStr < benchmarkDate) {
+      const currentUser = this.getCurrentUser();
+      if (!this.isSystemOwner(currentUser)) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to create back-dated banquet event bookings (event date: ${eventDateStr}).`);
+      }
+    }
 
     // Check hall collision on same date & overlapping time
     const collision = state.eventBookings.find(e => {
@@ -4293,8 +4340,9 @@ export const pmsService = {
   },
 
   voidFolioItem(folioId: string, itemId: string, voidReason: string): { success: boolean; message: string } {
-    if (!this.hasPermission('can_void_bills') && !this.hasPermission('folio:void-charge') && !this.hasPermission('billing:bill-void') && !this.hasPermission('approvals:bill-void')) {
-      throw new Error('Permission Denied: User role does not have authorization to void guest bill items.');
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to void guest bill items.');
     }
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found.');
@@ -4358,8 +4406,9 @@ export const pmsService = {
   },
 
   voidPayment(paymentId: string, voidReason: string): { success: boolean; message: string } {
-    if (!this.hasPermission('can_void_payments') && !this.hasPermission('payment:void') && !this.hasPermission('approvals:payment-void')) {
-      throw new Error('Permission Denied: User role does not have authorization to void payments.');
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to void payment transactions.');
     }
     const payment = state.payments.find(p => p.id === paymentId);
     if (!payment) throw new Error('Payment transaction not found.');
@@ -4398,8 +4447,9 @@ export const pmsService = {
   },
 
   resettleFolio(folioId: string, reason: string): { success: boolean; folio: Folio; message: string } {
-    if (!this.hasPermission('billing:bill-resettle') && !this.hasPermission('approvals:bill-resettle') && !this.hasPermission('can_void_bills')) {
-      throw new Error('Permission Denied: Supervisor authorization required for folio resettlement.');
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reopen or resettle folios.');
     }
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found.');
@@ -4412,8 +4462,9 @@ export const pmsService = {
   },
 
   voidEntireFolio(folioId: string, voidReason: string): { success: boolean; message: string } {
-    if (!this.hasPermission('billing:bill-void') && !this.hasPermission('approvals:bill-void') && !this.hasPermission('can_void_bills')) {
-      throw new Error('Permission Denied: Manager authorization required to void entire bill/folio.');
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to void entire guest folios.');
     }
     const folio = state.folios.find(f => f.id === folioId);
     if (!folio) throw new Error('Folio not found.');
@@ -5730,6 +5781,15 @@ export const pmsService = {
     narration: string;
     entries: JournalEntryItem[];
   }): { success: boolean; voucher?: JournalVoucher; message: string } {
+    const benchmarkDate = state.settings?.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const jvDateStr = data.date ? data.date.split('T')[0] : benchmarkDate;
+    if (jvDateStr < benchmarkDate) {
+      const currentUser = this.getCurrentUser();
+      if (!this.isSystemOwner(currentUser)) {
+        throw new Error(`Security Restriction: Only the System Owner (Labib Zunaedy) is authorized to post back-dated journal vouchers to the General Ledger (voucher date: ${jvDateStr}).`);
+      }
+    }
+
     const totalDebit = data.entries.reduce((sum, e) => sum + (e.debit || 0), 0);
     const totalCredit = data.entries.reduce((sum, e) => sum + (e.credit || 0), 0);
 
@@ -6236,6 +6296,10 @@ export const pmsService = {
   },
 
   restoreFullBackupPayload(rawPayload: any): { success: boolean; message: string; details: any } {
+    const currentUser = this.getCurrentUser();
+    if (!this.isSystemOwner(currentUser)) {
+      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup snapshots.');
+    }
     let payload = rawPayload;
     if (typeof rawPayload === 'string') {
       payload = this.parseBakContent(rawPayload);

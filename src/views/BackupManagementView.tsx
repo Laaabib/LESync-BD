@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Database, RefreshCw, CheckCircle2, AlertTriangle,
+  Database, RefreshCw, CheckCircle2, AlertTriangle, ShieldAlert,
   Server, ShieldCheck, Clock, Layers, Users, BedDouble, Receipt,
   Check, FileText, Sparkles, Terminal, Copy, Download, Upload,
   ExternalLink, ArrowDownToLine, ArrowUpRight, Zap, Settings2, Key, Globe, Eye, EyeOff,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { pmsService } from '../services/pmsService';
 import { rbacService } from '../services/rbacService';
+import { authService } from '../services/authService';
 import { cloudSqlSyncService, CloudSqlSyncStatus, SyncHistoryItem } from '../services/cloudSqlSyncService';
 import { CloudSqlConsole } from '../components/admin/CloudSqlConsole';
 import {
@@ -43,6 +44,8 @@ interface ScheduleInfo {
 }
 
 export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ initialTab = 'manual-backup' }) => {
+  const [activeUser, setActiveUser] = useState(() => rbacService.getActiveUser());
+  const isOwner = authService.isSystemOwner(activeUser);
   const isDevOrIT = rbacService.isAppOwnerOrIT();
   const [activeSectionTab, setActiveSectionTab] = useState<BackupHubTab>(() => {
     if (initialTab === 'sql-console') return 'sql-console';
@@ -50,6 +53,19 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
     if (initialTab === 'auto-backup') return 'auto-backup';
     return 'manual-backup';
   });
+
+  useEffect(() => {
+    const unsubRbac = rbacService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
+    const unsubAuth = authService.subscribe(() => {
+      setActiveUser({ ...rbacService.getActiveUser() });
+    });
+    return () => {
+      unsubRbac();
+      unsubAuth();
+    };
+  }, []);
 
   const [db, setDb] = useState(() => pmsService.getState());
   const [cloudStatus, setCloudStatus] = useState<CloudSqlSyncStatus>(cloudSqlSyncService.getStatus());
@@ -422,6 +438,27 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({ init
       setIsSeedingSupabase(false);
     }
   };
+
+  if (!isOwner) {
+    return (
+      <div className="space-y-6 pb-12 text-slate-200">
+        <div className="bg-slate-900 border border-rose-500/40 rounded-2xl p-8 text-center max-w-lg mx-auto space-y-4 my-12 shadow-2xl">
+          <ShieldAlert className="w-14 h-14 text-rose-400 mx-auto" />
+          <h2 className="text-base font-bold text-white">System Owner Clearance Required</h2>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            The Database Backup Center, system state snapshots, and Supabase SQL Console are sensitive administrative operations strictly restricted to the root System Owner (<strong className="text-amber-300 font-bold">Labib Zunaedy</strong>).
+          </p>
+          <button
+            type="button"
+            onClick={() => window.history.back()}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+          >
+            ← Return to Previous Screen
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12">

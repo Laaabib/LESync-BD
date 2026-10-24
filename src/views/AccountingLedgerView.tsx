@@ -17,6 +17,8 @@ import * as XLSX from 'xlsx';
 import { cloudSqlSyncService, CloudSqlSyncStatus } from '../services/cloudSqlSyncService';
 import { CloudSqlSyncModal } from '../components/common/CloudSqlSyncModal';
 import { rbacService } from '../services/rbacService';
+import { authService } from '../services/authService';
+import { getMinAllowedDate } from '../utils/dateSecurity';
 
 // Modular Finance Tabs
 import { AccountsReceivableTab } from '../components/finance/AccountsReceivableTab';
@@ -69,6 +71,7 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
   onNavigate
 }) => {
   const [db, setDb] = useState(pmsService.getState());
+  const isOwner = authService.isSystemOwner();
 
   useEffect(() => {
     return pmsService.subscribe(setDb);
@@ -1080,10 +1083,13 @@ export const AccountingLedgerView: React.FC<AccountingLedgerViewProps> = ({
             <form onSubmit={handleSubmitNewJv} className="mt-4 space-y-4">
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Posting Date *</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Posting Date * {!isOwner && <span className="text-[10px] text-amber-600 font-normal">(Backdating restricted to Owner)</span>}
+                  </label>
                   <input
                     type="date"
                     required
+                    min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                     value={jvDate}
                     onChange={e => setJvDate(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-white border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-600 focus:outline-hidden"

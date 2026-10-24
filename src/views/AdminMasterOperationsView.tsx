@@ -20,8 +20,9 @@ import {
 } from '../services/adminMasterService';
 import { rbacService } from '../services/rbacService';
 import { pmsService } from '../services/pmsService';
+import { authService } from '../services/authService';
 import { supabaseSyncService, SupabaseSyncStatus } from '../services/supabaseSyncService';
-import { DepartmentDef, OutletDef } from '../types/reportingAndRbac';
+import { DepartmentDef, OutletDef, UserContext } from '../types/reportingAndRbac';
 import * as XLSX from 'xlsx';
 
 export type MasterOperationsTab =
@@ -63,6 +64,10 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
   const [departments, setDepartments] = useState<DepartmentDef[]>(() => rbacService.getDepartments());
   const [outlets, setOutlets] = useState<OutletDef[]>(() => rbacService.getOutlets());
 
+  // Active user clearance and System Owner validation
+  const [currentUser, setCurrentUser] = useState<UserContext | null>(() => rbacService.getActiveUser());
+  const isOwner = useMemo(() => authService.isSystemOwner(currentUser), [currentUser]);
+
   // Reload trigger
   const reloadAll = () => {
     setNavModules([...adminMasterService.getNavModules()]);
@@ -70,16 +75,19 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
     setDeptItems([...adminMasterService.getDepartmentItems()]);
     setDepartments([...rbacService.getDepartments()]);
     setOutlets([...rbacService.getOutlets()]);
+    setCurrentUser(rbacService.getActiveUser());
   };
 
   useEffect(() => {
     const unsubAdmin = adminMasterService.subscribe(reloadAll);
     const unsubRbac = rbacService.subscribe(reloadAll);
     const unsubPms = pmsService.subscribe(reloadAll);
+    const unsubAuth = authService.subscribe(reloadAll);
     return () => {
       unsubAdmin();
       unsubRbac();
       unsubPms();
+      unsubAuth();
     };
   }, []);
 
@@ -299,6 +307,10 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
 
   const handleDeleteModule = (mod: NavModuleDef) => {
     if (!mod) return;
+    if (!isOwner) {
+      showToast('Permission Denied: Only System Owner (Labib Zunaedy) can delete primary navigation modules.');
+      return;
+    }
     if (mod.id === 'dashboard' || mod.id === 'administration') {
       showToast('Core system modules (Dashboard & Administration) cannot be deleted.');
       return;
@@ -1851,16 +1863,38 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
       {/* =================================================================== */}
       {activeTab === 'taxes' && (
         <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Tax Policies & Service Charge Engine</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Tax Policies & Service Charge Engine</h3>
+                {isOwner ? (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[10px] font-bold flex items-center gap-1 font-mono">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    System Owner Access
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 text-[10px] font-bold flex items-center gap-1 font-mono">
+                    <Shield className="w-3 h-3 text-slate-400" />
+                    Read-Only Mode
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Configure Value Added Tax (VAT), Service Charge (SC), and Supplemental Duties across all hotel outlets.
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {!isOwner && (
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold">System Owner Clearance Required:</strong> Only Labib Zunaedy (System Owner) is authorized to modify national statutory tax policies, VAT exemptions, and hotel service charge percentages. Form inputs are in read-only mode.
+              </div>
+            </div>
+          )}
+
+          <fieldset disabled={!isOwner} className="grid grid-cols-1 md:grid-cols-2 gap-4 disabled:opacity-80">
             <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
               <span className="text-xs font-bold text-slate-900 dark:text-white block mb-1">Standard National VAT</span>
               <p className="text-[11px] text-slate-400 mb-3">NBR mandated VAT on resort hospitality & catering.</p>
@@ -1868,7 +1902,8 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                 <input
                   type="number"
                   defaultValue={15}
-                  className="w-24 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-center font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  disabled={!isOwner}
+                  className="w-24 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-center font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-850"
                 />
                 <span className="font-bold text-slate-500">% Percentage</span>
               </div>
@@ -1881,12 +1916,13 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
                 <input
                   type="number"
                   defaultValue={10}
-                  className="w-24 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-center font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  disabled={!isOwner}
+                  className="w-24 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm font-bold text-center font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-850"
                 />
                 <span className="font-bold text-slate-500">% Percentage</span>
               </div>
             </div>
-          </div>
+          </fieldset>
         </div>
       )}
 
@@ -2009,7 +2045,7 @@ export const AdminMasterOperationsView: React.FC<AdminMasterOperationsViewProps>
               </div>
 
               <div className="pt-2 flex items-center justify-between">
-                {isEditModuleModalOpen && editingModule && editingModule.id !== 'dashboard' && editingModule.id !== 'administration' ? (
+                {isEditModuleModalOpen && editingModule && editingModule.id !== 'dashboard' && editingModule.id !== 'administration' && isOwner ? (
                   <button
                     type="button"
                     onClick={() => {

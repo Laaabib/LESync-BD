@@ -75,11 +75,11 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
   const [editChargeUnitPrice, setEditChargeUnitPrice] = useState(0);
   const [editChargeTotal, setEditChargeTotal] = useState(0);
   const [editChargeReason, setEditChargeReason] = useState('Mistaken charge amount correction by System Owner');
-
   const [message, setMessage] = useState('');
-  const canVoidBills = pmsService.hasPermission('can_void_bills') || rbacService.hasPermission('folio:void-charge') || rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void');
-  const canResettleBills = rbacService.hasPermission('billing:bill-resettle') || rbacService.hasPermission('approvals:bill-resettle') || pmsService.hasPermission('can_void_bills');
-  const canVoidEntireFolio = rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void');
+
+  const canVoidBills = isOwner && (pmsService.hasPermission('can_void_bills') || rbacService.hasPermission('folio:void-charge') || rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void'));
+  const canResettleBills = isOwner && (rbacService.hasPermission('billing:bill-resettle') || rbacService.hasPermission('approvals:bill-resettle') || pmsService.hasPermission('can_void_bills'));
+  const canVoidEntireFolio = isOwner && (rbacService.hasPermission('billing:bill-void') || rbacService.hasPermission('approvals:bill-void'));
 
   const handleSaveChargeCorrection = (e: React.FormEvent) => {
     e.preventDefault();
@@ -665,7 +665,7 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
                   <th className="py-2 px-2 text-center">Qty</th>
                   <th className="py-2 px-3 text-right">Tax (৳)</th>
                   <th className="py-2 px-3 text-right">Total (৳)</th>
-                  <th className="py-2 px-2 text-center">Action</th>
+                  {isOwner && <th className="py-2 px-2 text-center">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -699,38 +699,40 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
                         `৳${(it.total || 0).toLocaleString()}`
                       )}
                     </td>
-                    <td className="py-2 px-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        {isOwner && !it.voided && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingChargeItem(it);
-                              setEditChargeDesc(it.description);
-                              setEditChargeQty(it.quantity || 1);
-                              setEditChargeUnitPrice(it.unitPrice || 0);
-                              setEditChargeTotal(it.total || 0);
-                              setEditChargeReason('Mistaken charge amount correction');
-                            }}
-                            className="p-1 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded transition"
-                            title="Owner Master Correction: Edit mistaken charge or bill amount"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {!it.voided && (
-                          <button
-                            type="button"
-                            onClick={() => setItemToVoid(it)}
-                            disabled={!canVoidBills}
-                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Void this line item"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
+                    {isOwner && (
+                      <td className="py-2 px-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {!it.voided && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingChargeItem(it);
+                                setEditChargeDesc(it.description);
+                                setEditChargeQty(it.quantity || 1);
+                                setEditChargeUnitPrice(it.unitPrice || 0);
+                                setEditChargeTotal(it.total || 0);
+                                setEditChargeReason('Mistaken charge amount correction');
+                              }}
+                              className="p-1 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded transition"
+                              title="Owner Master Correction: Edit mistaken charge or bill amount"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {!it.voided && (
+                            <button
+                              type="button"
+                              onClick={() => setItemToVoid(it)}
+                              disabled={!canVoidBills}
+                              className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Void this line item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -786,7 +788,7 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
         </div>
 
         {/* Void Line Item Modal */}
-        {itemToVoid && (
+        {isOwner && itemToVoid && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-xs text-slate-200">
               <div className="flex items-center space-x-3 text-rose-400">
@@ -918,7 +920,7 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
         )}
 
         {/* Resettle Folio Modal */}
-        {showResettleModal && (
+        {isOwner && showResettleModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-xs text-slate-200">
               <div className="flex items-center space-x-3 text-amber-400">
@@ -980,7 +982,7 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
         )}
 
         {/* Void Entire Folio Modal */}
-        {showVoidFolioModal && (
+        {isOwner && showVoidFolioModal && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-xs text-slate-200">
               <div className="flex items-center space-x-3 text-rose-400">
@@ -1036,7 +1038,7 @@ export const FolioDrawer: React.FC<FolioDrawerProps> = ({
           </div>
         )}
         {/* System Owner Inline Charge Correction Modal */}
-        {editingChargeItem && (
+        {isOwner && editingChargeItem && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-150">
               <div className="flex items-center space-x-3 text-amber-400">

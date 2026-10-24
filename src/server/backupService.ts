@@ -33,17 +33,24 @@ class BackupService {
   private lastExecutedDateHour: string = '';
 
   constructor() {
-    this.ensureBackupDir();
-    this.startScheduler();
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+    if (!isServerless) {
+      this.ensureBackupDir();
+      this.startScheduler();
+    }
   }
 
   private ensureBackupDir() {
     try {
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY);
+      if (isServerless) {
+        this.config.backupDir = '/tmp/backups';
+      }
       if (!fs.existsSync(this.config.backupDir)) {
         fs.mkdirSync(this.config.backupDir, { recursive: true });
       }
     } catch (err) {
-      console.error('[BackupService] Failed to create backup directory:', err);
+      console.warn('[BackupService] Backup directory notice:', err);
     }
   }
 

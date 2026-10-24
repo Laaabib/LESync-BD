@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { BanquetQuotation, Package, Hall, RoomType, MenuItem } from '../../types/pms';
 import { pmsService } from '../../services/pmsService';
+import { authService } from '../../services/authService';
+import { getMinAllowedDate } from '../../utils/dateSecurity';
 
 interface BanquetQuotationModalProps {
   initialQuotation?: BanquetQuotation | null;
@@ -22,6 +24,7 @@ export const BanquetQuotationModal: React.FC<BanquetQuotationModalProps> = ({
   onSaved
 }) => {
   const db = pmsService.getState();
+  const isOwner = authService.isSystemOwner();
   const availableHalls = db.halls || [];
   const availablePackages = db.packages || [];
   const availableRoomTypes = db.roomTypes || [];
@@ -630,10 +633,13 @@ export const BanquetQuotationModal: React.FC<BanquetQuotationModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-slate-400 font-medium mb-1">Event Date</label>
+                    <label className="block text-slate-400 font-medium mb-1">
+                      Event Date {!isOwner && <span className="text-[10px] text-amber-500 font-normal">(No backdating)</span>}
+                    </label>
                     <input
                       type="date"
                       value={eventDate}
+                      min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                       onChange={e => setEventDate(e.target.value)}
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-purple-500"
                     />

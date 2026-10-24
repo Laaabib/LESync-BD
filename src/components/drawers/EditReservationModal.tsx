@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { pmsService } from '../../services/pmsService';
 import { Reservation, CustomerType } from '../../types/pms';
+import { authService } from '../../services/authService';
+import { getMinAllowedDate } from '../../utils/dateSecurity';
 
 interface EditReservationModalProps {
   isOpen: boolean;
@@ -20,6 +22,7 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({
   onSuccess
 }) => {
   const [db, setDb] = useState(pmsService.getState());
+  const isOwner = authService.isSystemOwner();
 
   // Form states
   const [guestName, setGuestName] = useState('');
@@ -358,11 +361,12 @@ export const EditReservationModal: React.FC<EditReservationModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[10.5px] font-semibold text-slate-400 block mb-1">
-                  Arrival Date *
+                  Arrival Date * {!isOwner && <span className="text-[9px] text-amber-500/80">(No backdating)</span>}
                 </label>
                 <input
                   type="date"
                   value={arrivalDate}
+                  min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate)}
                   onChange={e => setArrivalDate(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 text-xs focus:border-amber-400 focus:outline-none font-mono"
                 />

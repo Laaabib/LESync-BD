@@ -472,6 +472,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Dynamic Navigation Engine: reads authoritative masterNavModules from adminMasterService
   const masterNavModules = adminMasterService.getNavModules();
   const isSuperAdmin = rbacService.isSuperAdmin(activeUser);
+  const isOwner = authService.isSystemOwner(activeUser);
+
+  // Sensitive administrative routes restricted exclusively to System Owner (Labib Zunaedy)
+  const SENSITIVE_OWNER_ROUTES = new Set([
+    'admin-onboarding',
+    'settings',
+    'admin-tax',
+    'admin-service-charge',
+    'admin-numbering',
+    'admin-audit-rules',
+    'admin-backup',
+    'admin-auto-backup',
+    'admin-sql-console'
+  ]);
 
   // Map of static baseline items for icon & metadata fallbacks
   const defaultNavMap = new Map<string, NavItem>();
@@ -517,9 +531,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         });
       }
 
-      // Filter enabled sub-menus, sort by order, and map icons
+      // Filter enabled sub-menus, enforce strict System Owner protection for sensitive administrative operations, sort by order, and map icons
       const visibleChildren = rawChildren
-        .filter(sub => sub.enabled !== false)
+        .filter(sub => {
+          if (sub.enabled === false) return false;
+          const target = sub.targetRoute || sub.id;
+          if (SENSITIVE_OWNER_ROUTES.has(target) && !isOwner) {
+            return false;
+          }
+          return true;
+        })
         .sort((a, b) => (a.order || 0) - (b.order || 0))
         .map(sub => {
           const subDefaultIcon = defaultItem?.children?.find(c => c.id === sub.id)?.icon;

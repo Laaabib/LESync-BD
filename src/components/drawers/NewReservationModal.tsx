@@ -8,6 +8,8 @@ import {
 import { pmsService } from '../../services/pmsService';
 import { Guest, RoomType, Package, PaymentMethod, Reservation, CustomerType, AllocatedRoom, GroupMember } from '../../types/pms';
 import { SIMPLE_CARD_OPTIONS } from '../../constants/paymentConfig';
+import { authService } from '../../services/authService';
+import { getMinAllowedDate } from '../../utils/dateSecurity';
 
 type BookingSourceType = Reservation['bookingSource'];
 
@@ -47,6 +49,7 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
 
   const effectiveRoomId = initialRoomId || preselectedRoomId || '';
   const effectiveArrivalDate = initialArrivalDate || preselectedDate || '';
+  const isOwner = authService.isSystemOwner();
 
   // 1. Customer Classification: Individual vs Corporate
   const [customerType, setCustomerType] = useState<CustomerType>('Individual');
@@ -978,11 +981,13 @@ export const NewReservationModal: React.FC<NewReservationModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
-                <span className="text-[10px] text-slate-400 block mb-0.5">Arrival Date:</span>
+                <span className="text-[10px] text-slate-400 block mb-0.5">
+                  Arrival Date {!isOwner && <span className="text-[9px] text-amber-500/80">(No backdating)</span>}:
+                </span>
                 <input
                   type="date"
                   value={arrivalDate}
-                  min={todayStr}
+                  min={getMinAllowedDate(isOwner, db.settings?.currentBusinessDate || todayStr)}
                   onChange={(e) => {
                     const newArr = e.target.value;
                     setArrivalDate(newArr);
