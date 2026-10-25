@@ -9,6 +9,10 @@ build/
 out/
 .next/
 *.tsbuildinfo
+api/*.js
+bun.lock*
+backups/
+*.bak
 
 # Environment variables
 .env

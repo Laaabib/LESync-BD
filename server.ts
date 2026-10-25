@@ -35,7 +35,7 @@ async function startServer() {
   const app = createApp();
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   const connectedClients = new Map<WebSocket, ConnectedClient>();
 
