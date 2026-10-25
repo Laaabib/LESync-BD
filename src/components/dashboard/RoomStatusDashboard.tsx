@@ -1044,10 +1044,10 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
                           : 'hover:shadow-sm hover:scale-[1.03]'
                       }`}
                     >
-                      {/* Top Header Row: Room Number, VIP, Billing Quick Icon, Floor */}
-                      <div className="flex items-center justify-between gap-1 leading-none">
-                        <div className="flex items-center space-x-1 shrink-0">
-                          <span className={`px-2 py-0.5 rounded-md font-mono font-black text-xs sm:text-[13.5px] tracking-tight leading-none shadow-xs border transition-all ${
+                      {/* Top Header Row: Room Number, VIP Star, Floor */}
+                      <div className="flex items-center justify-between gap-1 leading-none min-w-0">
+                        <div className="flex items-center space-x-1 shrink-0 min-w-0">
+                          <span className={`px-2 py-0.5 rounded-md font-mono font-black text-xs sm:text-[13.5px] tracking-tight leading-none shadow-xs border transition-all shrink-0 ${
                             isSearchMatch
                               ? 'bg-amber-300 text-amber-950 border-2 border-amber-600 ring-2 ring-amber-400 font-black scale-110 shadow-md animate-pulse'
                               : roomHighlightStyle === 'gold'
@@ -1058,47 +1058,25 @@ export const RoomStatusDashboard: React.FC<RoomStatusDashboardProps> = ({
                           }`}>
                             {room.roomNumber}
                           </span>
-                          {isVip && <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500 shrink-0" />}
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          {stay && (
-                            <div className="flex items-center space-x-0.5">
-                              <button
-                                type="button"
-                                title="Check-Out Guest & Settle Folio"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onOpenCheckout) onOpenCheckout(stay.id);
-                                  else onSelectStay(stay.id);
-                                }}
-                                className="p-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white shrink-0 shadow-xs cursor-pointer"
-                              >
-                                <LogOut className="w-2.5 h-2.5" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Quick Bill Payment"
-                                onClick={(e) => openRoomAction(room, 'payment', e)}
-                                className="p-0.5 rounded bg-emerald-700 hover:bg-emerald-800 text-white shrink-0 shadow-xs cursor-pointer"
-                              >
-                                <CreditCard className="w-2.5 h-2.5" />
-                              </button>
-                            </div>
+                          {isVip && (
+                            <span title="VIP Guest" className="inline-flex shrink-0">
+                              <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500 shrink-0" />
+                            </span>
                           )}
-                          <span className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded border ${style.floorBadge}`}>
-                            F{room.floor}
-                          </span>
                         </div>
+                        <span className={`text-[9px] font-mono font-bold px-1 py-0.5 rounded border shrink-0 ${style.floorBadge}`}>
+                          F{room.floor}
+                        </span>
                       </div>
 
                       {/* BIG HIGHLIGHTED ROOM STATUS (VACANT, OCC, CLEAN, DIRTY, OOO, OOS, RES) */}
-                      <div className={`w-full py-1 px-1 rounded text-center font-black text-[11px] tracking-wider uppercase shadow-xs flex items-center justify-center space-x-1 leading-tight ${style.badgeBg}`}>
+                      <div className={`w-full py-0.5 sm:py-1 px-1 rounded text-center font-black text-[10.5px] sm:text-[11px] tracking-wider uppercase shadow-xs flex items-center justify-center space-x-1 leading-tight shrink-0 ${style.badgeBg}`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0"></span>
                         <span className="truncate">{style.shortLabel}</span>
                       </div>
 
                       {/* Bottom Row: Guest Surname or Quick Note */}
-                      <div className={`pt-0.5 border-t ${style.dividerColor} flex items-center justify-between text-[9px] font-black leading-none truncate`}>
+                      <div className={`pt-0.5 border-t ${style.dividerColor} flex items-center justify-between text-[9px] font-black leading-none truncate min-w-0`}>
                         {stay ? (
                           <span className={`truncate ${style.statusNoteColor}`} title={`In-House: ${stay.guestName}`}>
                             {formatDisplayGuestName(stay.guestName)}
