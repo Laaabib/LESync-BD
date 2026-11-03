@@ -1074,6 +1074,10 @@ export interface SystemSetting {
   allowDirectRoomPost?: boolean;
   stopPostStrict?: boolean;
   lateCheckoutGraceMinutes?: number;
+  // Persistence & Cloud Sync Metadata
+  updatedAt?: string;
+  isOnboardedCleanSlate?: boolean;
+  onboardedAt?: string;
 }
 
 export * from './inventoryMenu';

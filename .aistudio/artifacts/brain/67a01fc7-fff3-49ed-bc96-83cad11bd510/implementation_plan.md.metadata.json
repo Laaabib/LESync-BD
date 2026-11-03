@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architectural blueprint to restrict bill corrections, payment adjustments, folio voiding/resettlements, and all backdated data entry strictly to System Owner Labib Zunaedy across Billing, Accounting, Front Office, and F&B/Banquet modules.",
-  "updatedAt":  "2026-10-22T07:55:04.312942535Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan to fix property settings and new property onboarding changes not staying saved in the deployed version by adding versioned settings persistence, immediate cloud snapshot sync, logo compression, and snapshot overwrite protection.",
+  "updatedAt": "2026-11-03T06:00:25.637802469Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

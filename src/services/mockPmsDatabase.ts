@@ -1889,17 +1889,28 @@ export function getInitialDatabase(): PmsDatabaseState {
       if (!Array.isArray(parsed.alerts)) parsed.alerts = [];
       if (!Array.isArray(parsed.nightAuditRecords)) parsed.nightAuditRecords = [];
       if (!Array.isArray(parsed.rolePermissions)) parsed.rolePermissions = [];
+      const persistedSettings = loadPersistedSettings();
       if (!parsed.settings) {
-        parsed.settings = DEFAULT_SETTINGS;
+        parsed.settings = persistedSettings ? { ...DEFAULT_SETTINGS, ...persistedSettings } : { ...DEFAULT_SETTINGS };
       } else {
-        if (parsed.settings.resortName && parsed.settings.resortName.includes('CCULB')) {
-          parsed.settings.resortName = DEFAULT_SETTINGS.resortName;
-          parsed.settings.email = DEFAULT_SETTINGS.email;
-          parsed.settings.website = DEFAULT_SETTINGS.website;
+        // Merge dedicated persisted settings if newer or if main state settings lacked updatedAt
+        if (persistedSettings && persistedSettings.resortName) {
+          const persistedTime = persistedSettings.updatedAt || '';
+          const parsedTime = parsed.settings.updatedAt || '';
+          if (!parsedTime || (persistedTime && persistedTime >= parsedTime)) {
+            parsed.settings = {
+              ...DEFAULT_SETTINGS,
+              ...parsed.settings,
+              ...persistedSettings
+            };
+          }
         }
-        // Audit time must default to 06:00 AM morning and auto audit disabled unless explicitly set
-        parsed.settings.autoNightAuditTime = '06:00';
-        parsed.settings.autoNightAuditEnabled = false;
+        if (!parsed.settings.autoNightAuditTime) {
+          parsed.settings.autoNightAuditTime = '06:00';
+        }
+        if (parsed.settings.autoNightAuditEnabled === undefined) {
+          parsed.settings.autoNightAuditEnabled = false;
+        }
 
         // Self-heal runaway business dates (e.g. rolled into future years like 2028+ due to runaway automated audit loops)
         if (parsed.settings.currentBusinessDate && parsed.settings.currentBusinessDate > '2028-01-01') {
@@ -3404,7 +3415,10 @@ export function getInitialDatabase(): PmsDatabaseState {
     menuModifiers: SEED_MENU_MODIFIERS,
     menuCombos: SEED_MENU_COMBOS,
     menuPriceHistories: SEED_PRICE_HISTORIES,
-    settings: DEFAULT_SETTINGS,
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(loadPersistedSettings() || {})
+    },
     currentUser: SEED_USERS[0]
   };
 
@@ -3499,7 +3513,8 @@ export function createCleanDatabase(): PmsDatabaseState {
     settings: {
       ...DEFAULT_SETTINGS,
       currentBusinessDate: typeof window !== 'undefined' ? new Date().toISOString().split('T')[0] : '2026-09-24',
-      autoNightAuditEnabled: false
+      autoNightAuditEnabled: false,
+      ...(loadPersistedSettings() || {})
     },
     currentUser: SEED_USERS[0]
   };
@@ -3516,7 +3531,88 @@ export function createCleanDatabase(): PmsDatabaseState {
   return cleanState;
 }
 
+export const SETTINGS_STORAGE_KEY = 'pms_property_settings_v1';
+export const SETTINGS_IDENTITY_KEY = 'pms_property_identity_v1';
+
+export function savePersistedSettings(settings: SystemSetting) {
+  if (!settings || typeof settings !== 'object') return;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      // Never allow an un-timestamped or older settings object to overwrite a newer user-saved property identity
+      const existingRaw = localStorage.getItem(SETTINGS_IDENTITY_KEY) || localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (existingRaw) {
+        try {
+          const existing = JSON.parse(existingRaw);
+          if (existing?.updatedAt && (!settings.updatedAt || settings.updatedAt < existing.updatedAt)) {
+            return;
+          }
+        } catch {}
+      }
+
+      // 1. Always save lightweight identity fields (<2KB) first so quota limits can NEVER block property identity persistence
+      const { logoUrl, ...identityWithoutLogo } = settings;
+      const lightweightPayload = (logoUrl && logoUrl.length < 45000)
+        ? settings
+        : identityWithoutLogo;
+      localStorage.setItem(SETTINGS_IDENTITY_KEY, JSON.stringify(lightweightPayload));
+
+      // 2. Save full settings (including logo) to primary key
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
+  } catch (e) {
+    console.warn('Unable to persist full property settings to primary localStorage key, retrying after pruning logs:', e);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const { logoUrl, ...identityWithoutLogo } = settings;
+        localStorage.setItem(SETTINGS_IDENTITY_KEY, JSON.stringify(identityWithoutLogo));
+      }
+    } catch {}
+  }
+}
+
+export function loadPersistedSettings(): Partial<SystemSetting> | null {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      let fullParsed: Partial<SystemSetting> | null = null;
+      let identityParsed: Partial<SystemSetting> | null = null;
+
+      const rawFull = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (rawFull) {
+        try {
+          const p = JSON.parse(rawFull);
+          if (p && typeof p === 'object' && p.resortName) fullParsed = p;
+        } catch {}
+      }
+
+      const rawIdentity = localStorage.getItem(SETTINGS_IDENTITY_KEY);
+      if (rawIdentity) {
+        try {
+          const p = JSON.parse(rawIdentity);
+          if (p && typeof p === 'object' && p.resortName) identityParsed = p;
+        } catch {}
+      }
+
+      if (fullParsed && identityParsed) {
+        const fullTime = fullParsed.updatedAt || '';
+        const idTime = identityParsed.updatedAt || '';
+        if (idTime > fullTime) {
+          return { ...fullParsed, ...identityParsed };
+        }
+        return { ...identityParsed, ...fullParsed };
+      }
+
+      return fullParsed || identityParsed;
+    }
+  } catch (e) {
+    console.warn('Unable to read persisted property settings:', e);
+  }
+  return null;
+}
+
 export function saveDatabase(state: PmsDatabaseState) {
+  if (state?.settings) {
+    savePersistedSettings(state.settings);
+  }
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -3528,7 +3624,8 @@ export function saveDatabase(state: PmsDatabaseState) {
       if (typeof window !== 'undefined' && window.localStorage) {
         const prunedState: PmsDatabaseState = {
           ...state,
-          auditLogs: Array.isArray(state.auditLogs) ? state.auditLogs.slice(0, 50) : [],
+          auditLogs: Array.isArray(state.auditLogs) ? state.auditLogs.slice(0, 40) : [],
+          auditTrail: [],
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(prunedState));
         console.info('Successfully saved PMS database with pruned audit history.');
@@ -3537,9 +3634,15 @@ export function saveDatabase(state: PmsDatabaseState) {
       console.warn('Pruned retry also encountered storage limit:', e2);
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
+          // Offload oversized logoUrl to SETTINGS_STORAGE_KEY so main DB snapshot fits comfortably in localStorage
+          const compactSettings = state.settings?.logoUrl && state.settings.logoUrl.length > 50000
+            ? { ...state.settings, logoUrl: '' }
+            : state.settings;
           const minimalState: PmsDatabaseState = {
             ...state,
+            settings: compactSettings,
             auditLogs: [],
+            auditTrail: [],
             guestDocuments: [],
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalState));

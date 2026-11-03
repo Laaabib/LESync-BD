@@ -1,6 +1,7 @@
 import {
   getInitialDatabase, saveDatabase, PmsDatabaseState, SEED_HALLS, SEED_ACTIVITIES, SEED_FLOORS,
-  getOffsetDate, getTodayString, getSeedPendingReservations, createCleanDatabase
+  getOffsetDate, getTodayString, getSeedPendingReservations, createCleanDatabase,
+  savePersistedSettings, loadPersistedSettings
 } from './mockPmsDatabase';
 import {
   SEED_ENHANCED_MENU_ITEMS, SEED_RECIPES
@@ -46,8 +47,19 @@ if (!Array.isArray(state.recipes) || state.recipes.length === 0) {
 
 // Self-heal runaway business dates (e.g. rolled into future years like 2028+ due to runaway automated audit loops)
 if (state.settings) {
-  state.settings.autoNightAuditTime = '06:00';
-  state.settings.autoNightAuditEnabled = false;
+  const persisted = loadPersistedSettings();
+  if (persisted && persisted.updatedAt && (!state.settings.updatedAt || persisted.updatedAt >= state.settings.updatedAt)) {
+    state.settings = {
+      ...state.settings,
+      ...persisted
+    };
+  }
+  if (!state.settings.autoNightAuditTime) {
+    state.settings.autoNightAuditTime = '06:00';
+  }
+  if (state.settings.autoNightAuditEnabled === undefined) {
+    state.settings.autoNightAuditEnabled = false;
+  }
   if (state.settings.currentBusinessDate && state.settings.currentBusinessDate > '2028-01-01') {
     state.settings.currentBusinessDate = typeof window !== 'undefined' ? getTodayString() : '2026-10-02';
     state.settings.lastNightAuditDate = undefined;
@@ -160,6 +172,7 @@ if (Array.isArray(state.folios)) {
 function notify() {
   state = {
     ...state,
+    settings: { ...state.settings },
     users: [...(state.users || [])],
     rooms: [...state.rooms],
     stays: [...state.stays],
@@ -381,7 +394,14 @@ export const pmsService = {
       if (Array.isArray(newState.menuCombos) && newState.menuCombos.length > 0) state.menuCombos = [...newState.menuCombos];
       if (Array.isArray(newState.auditLogs)) state.auditLogs = [...newState.auditLogs];
       if (newState.settings && typeof newState.settings === 'object') {
-        state.settings = { ...state.settings, ...newState.settings };
+        const localUpdatedAt = state.settings?.updatedAt || loadPersistedSettings()?.updatedAt || '';
+        const incomingUpdatedAt = newState.settings.updatedAt || '';
+        if (!fromRemote || !localUpdatedAt || (incomingUpdatedAt && incomingUpdatedAt >= localUpdatedAt)) {
+          state.settings = { ...state.settings, ...newState.settings };
+          savePersistedSettings(state.settings);
+        } else {
+          hadLocalPreserved = true;
+        }
       }
 
       saveDatabase(state);
@@ -434,19 +454,23 @@ export const pmsService = {
   },
 
   isSystemOwner(user?: User | any): boolean {
-    const u = user || this.getCurrentUser();
-    if (!u) return false;
-    const username = (u.username || '').toLowerCase().trim();
-    const email = (u.email || '').toLowerCase().trim();
-    const name = (u.name || '').toLowerCase().trim();
-    return (
-      u.id === 'usr-admin-1' ||
-      username === 'admin' ||
-      email === 'admin@lesyncpms.com' ||
-      email === 'labibzunaedy@gmail.com' ||
-      name.includes('labib') ||
-      name.includes('zunaedy')
-    );
+    const checkCandidate = (u: any): boolean => {
+      if (!u) return false;
+      const username = (u.username || '').toLowerCase().trim();
+      const email = (u.email || '').toLowerCase().trim();
+      const name = (u.name || '').toLowerCase().trim();
+      const role = (u.role || u.roleName || '').toLowerCase().trim();
+      return (
+        u.id === 'usr-admin-1' ||
+        username === 'admin' ||
+        email === 'admin@lesyncpms.com' ||
+        email === 'labibzunaedy@gmail.com' ||
+        name.includes('labib') ||
+        name.includes('zunaedy') ||
+        role === 'super admin'
+      );
+    };
+    return checkCandidate(user) || checkCandidate(this.getCurrentUser()) || checkCandidate(rbacService.getActiveUser());
   },
 
   resetToCleanState() {
@@ -629,6 +653,7 @@ export const pmsService = {
       throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
     }
     const todayStr = config.currentBusinessDate || new Date().toISOString().split('T')[0];
+    const nowIso = new Date().toISOString();
     state.settings = {
       ...state.settings,
       resortName: config.resortName.trim(),
@@ -644,8 +669,12 @@ export const pmsService = {
       serviceChargePercent: config.serviceCharge ?? state.settings.serviceChargePercent,
       serviceChargeRate: config.serviceCharge ?? state.settings.serviceChargeRate,
       currentBusinessDate: todayStr,
-      lastNightAuditDate: undefined
+      lastNightAuditDate: undefined,
+      updatedAt: nowIso,
+      isOnboardedCleanSlate: true,
+      onboardedAt: nowIso
     };
+    savePersistedSettings(state.settings);
 
     // Clean all transaction, stay, booking, folio, and customer records
     state.reservations = [];
@@ -753,14 +782,19 @@ export const pmsService = {
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem('pms_clean_state_active', 'true');
       localStorage.setItem('cculb_clean_state_v1', 'true');
+      localStorage.setItem('pms_settings_last_saved_at', nowIso);
     }
 
+    savePersistedSettings(state.settings);
     saveDatabase(state);
     notify();
 
     try {
       import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
-        supabaseSyncService.syncEntirePmsState().catch(() => {});
+        supabaseSyncService.syncEntirePmsState({ force: true }).catch(() => {});
+      }).catch(() => {});
+      import('./realtimeSyncService.ts').then(({ realtimeSyncService }) => {
+        realtimeSyncService.broadcastState(state, `Provisioned New Property: ${config.resortName}`);
       }).catch(() => {});
     } catch {}
 
@@ -6088,13 +6122,32 @@ export const pmsService = {
     if (!this.isSystemOwner(currentUser)) {
       throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
     }
+    const nowIso = new Date().toISOString();
     state.settings = {
       ...state.settings,
-      ...updates
+      ...updates,
+      updatedAt: nowIso
     };
-    this.logAudit('Updated System Settings', 'Settings', 'SYSTEM', undefined, JSON.stringify(updates));
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem('pms_settings_last_saved_at', nowIso);
+    }
+    savePersistedSettings(state.settings);
+    saveDatabase(state);
+    this.logAudit('Updated System Settings', 'Settings', 'SYSTEM', undefined, JSON.stringify({ ...updates, logoUrl: updates.logoUrl ? '[Logo Updated]' : undefined }));
     notify();
-    return { success: true, message: 'System configuration parameters updated successfully.' };
+
+    try {
+      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+        supabaseSyncService.syncEntirePmsState({ force: true }).catch(err => {
+          console.warn('[Supabase] Immediate settings sync notice:', err?.message || err);
+        });
+      }).catch(() => {});
+      import('./realtimeSyncService.ts').then(({ realtimeSyncService }) => {
+        realtimeSyncService.broadcastState(state, 'System Settings Updated');
+      }).catch(() => {});
+    } catch {}
+
+    return { success: true, message: 'System configuration parameters updated and synced successfully.' };
   },
 
   updateRoomType(roomTypeId: string, updates: Partial<RoomType>): RoomType {
@@ -6295,10 +6348,13 @@ export const pmsService = {
     return JSON.parse(jsonString);
   },
 
-  restoreFullBackupPayload(rawPayload: any): { success: boolean; message: string; details: any } {
-    const currentUser = this.getCurrentUser();
-    if (!this.isSystemOwner(currentUser)) {
-      throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup snapshots.');
+  restoreFullBackupPayload(rawPayload: any, options?: { fromCloudHydration?: boolean }): { success: boolean; message: string; details: any } {
+    const isCloudHydration = Boolean(options?.fromCloudHydration);
+    if (!isCloudHydration) {
+      const currentUser = this.getCurrentUser();
+      if (!this.isSystemOwner(currentUser)) {
+        throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup snapshots.');
+      }
     }
     let payload = rawPayload;
     if (typeof rawPayload === 'string') {
@@ -6315,13 +6371,38 @@ export const pmsService = {
       throw new Error('Invalid backup file: PMS core entities missing (rooms, reservations, roomTypes).');
     }
 
+    const previousSettings = state.settings ? { ...state.settings } : null;
+    const persistedLocalSettings = loadPersistedSettings();
+
     // Replace state with deep merge of defaults and parsed data
     state = {
       ...getInitialDatabase(),
       ...pmsData
     };
 
-    // Guarantee pending arrivals for current business date after backup restore
+    // If hydrating from cloud snapshot, never let an older cloud snapshot overwrite newer local property settings
+    if (isCloudHydration) {
+      const localCandidate = (persistedLocalSettings?.updatedAt && (!previousSettings?.updatedAt || persistedLocalSettings.updatedAt >= previousSettings.updatedAt))
+        ? { ...previousSettings, ...persistedLocalSettings } as SystemSetting
+        : previousSettings;
+      const localUpdatedAt = localCandidate?.updatedAt || '';
+      const remoteUpdatedAt = pmsData.settings?.updatedAt || '';
+
+      if (localCandidate && localUpdatedAt && (!remoteUpdatedAt || localUpdatedAt > remoteUpdatedAt)) {
+        state.settings = {
+          ...(state.settings || {}),
+          ...localCandidate
+        };
+      }
+    } else if (state.settings) {
+      // Explicit manual restore from .bak file: stamp updatedAt so restored settings persist
+      state.settings = {
+        ...state.settings,
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    // Guarantee pending arrivals for current business date after backup restore (skip if property was onboarded as clean slate)
     const curBiz = state.settings?.currentBusinessDate || getTodayString();
     if (!state.settings) {
       state.settings = getInitialDatabase().settings;
@@ -6329,19 +6410,21 @@ export const pmsService = {
     if (!state.settings.currentBusinessDate || state.settings.currentBusinessDate < '2026-09-01' || state.settings.currentBusinessDate > '2028-01-01') {
       state.settings.currentBusinessDate = curBiz;
     }
-    const confirmedRestored = (state.reservations || []).filter(
-      r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
-    );
-    const todayArrivals = confirmedRestored.filter(r => r.arrivalDate === curBiz);
-    if (todayArrivals.length === 0) {
-      if (confirmedRestored.length >= 2) {
-        // Realign restored bookings so at least 2-3 are pending arrivals for today
-        confirmedRestored.forEach((r, idx) => {
-          const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
-          r.arrivalDate = getOffsetDate(curBiz, offset);
-          r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
-          r.updatedAt = new Date().toISOString();
-        });
+    if (!state.settings.isOnboardedCleanSlate) {
+      const confirmedRestored = (state.reservations || []).filter(
+        r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
+      );
+      const todayArrivals = confirmedRestored.filter(r => r.arrivalDate === curBiz);
+      if (todayArrivals.length === 0) {
+        if (confirmedRestored.length >= 2) {
+          // Realign restored bookings so at least 2-3 are pending arrivals for today
+          confirmedRestored.forEach((r, idx) => {
+            const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+            r.arrivalDate = getOffsetDate(curBiz, offset);
+            r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+            r.updatedAt = new Date().toISOString();
+          });
+        }
       }
     }
 
@@ -6374,25 +6457,30 @@ export const pmsService = {
       }
     }
 
-    // Clear clean state flags from localStorage so restored operations remain active
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.removeItem('pms_clean_state_active');
-      localStorage.removeItem('cculb_clean_state_v1');
-      localStorage.removeItem('cculb_accounting_reset_v1');
-      localStorage.removeItem('cculb_cashbank_reset_v1');
+    if (!isCloudHydration) {
+      // Clear clean state flags from localStorage so manually restored operations remain active
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem('pms_clean_state_active');
+        localStorage.removeItem('cculb_clean_state_v1');
+        localStorage.removeItem('cculb_accounting_reset_v1');
+        localStorage.removeItem('cculb_cashbank_reset_v1');
+      }
     }
 
+    savePersistedSettings(state.settings);
     saveDatabase(state);
     notify();
 
-    // Trigger immediate cloud synchronization of the restored state to Supabase
-    try {
-      import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
-        supabaseSyncService.syncEntirePmsState().catch(err => {
-          console.warn('[Supabase] Sync notice for restored state:', err?.message || err);
-        });
-      }).catch(() => {});
-    } catch {}
+    if (!isCloudHydration) {
+      // Trigger immediate cloud synchronization of the manually restored state to Supabase
+      try {
+        import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+          supabaseSyncService.syncEntirePmsState().catch(err => {
+            console.warn('[Supabase] Sync notice for restored state:', err?.message || err);
+          });
+        }).catch(() => {});
+      } catch {}
+    }
 
     const roomsCount = (state.rooms || []).length;
     const resCount = (state.reservations || []).length;
@@ -6401,8 +6489,10 @@ export const pmsService = {
     const glAccountsCount = (state.glAccounts || []).length;
     const invoicesCount = (state.invoices || []).length;
 
-    this.logAudit('Restored Full Backup', 'Settings', 'MANUAL_RESTORE', undefined, `Restored database snapshot created at ${payload.metadata?.exportedAt || 'Unknown'}`);
-    this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios) and synced to Supabase Cloud.`);
+    if (!isCloudHydration) {
+      this.logAudit('Restored Full Backup', 'Settings', 'MANUAL_RESTORE', undefined, `Restored database snapshot created at ${payload.metadata?.exportedAt || 'Unknown'}`);
+      this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios) and synced to Supabase Cloud.`);
+    }
 
     return {
       success: true,

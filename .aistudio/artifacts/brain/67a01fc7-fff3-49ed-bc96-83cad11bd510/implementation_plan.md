@@ -1,154 +1,73 @@
-# System Owner Exclusive Bill/Payment Adjustments & Backdated Data Controls
+# Implementation Plan: Persistent Property Settings & Clean-Slate Onboarding Sync
 
-Strict role-based governance model restricting all financial corrections (bill adjustments, charge edits, folio item voiding, payment voiding, bill resettlements) and past-date entries (backdating) exclusively to System Owner Labib Zunaedy.
-
----
-
-### User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following architectural decisions were confirmed via interactive clarification:
->
-> - **Staff Bill & Payment Experience**: Non-owner staff will have full visibility into guest folios, checkout invoices, and cashier payment histories, but all modification affordances (Edit Charge, Void Item, Void Payment, Reopen/Resettle Folio, Post Adjustment, and Void Entire Bill) will be completely hidden from the interface.
-> - **Backdated Data Entry Controls**: All date pickers across the application will dynamically bind `min={todayStr}` for non-owners, rendering past dates unselectable in the calendar. If an unauthorized client attempts to bypass the UI, core PMS services will throw strict security errors.
-> - **Enforced Functional Domains**:
->   1. **Billing & Folios**: Charge corrections, folio item voids, bill resettlements, payment voids, adjustments, refunds.
->   2. **General Ledger & Accounting**: Manual journal vouchers, ledger adjustments, audit corrections.
->   3. **Front Desk & Reservations**: Check-in arrival dates, room charges, new reservations.
->   4. **F&B POS & Convention Banquets**: Restaurant orders, bar KOTs, banquet event booking schedules.
+## 1. Confirmed Requirements & Scope
+Based on your responses:
+- **Target Sections**: Both **System Settings & Property Profile** and **Onboard New Property (Clean Slate)** tabs must reliably save and retain all changes in the final deployed application.
+- **Cloud Synchronization Strategy**: Saving property settings or provisioning a new property must **sync immediately to the cloud database** and **block older cloud snapshots from overwriting** newly saved settings or freshly onboarded clean-slate properties.
 
 ---
 
-### 1. Overview & Core Concept
-
-#### What It Does
-This security update establishes an unassailable financial integrity perimeter. Regular hotel staff (receptionists, cashiers, F&B order-takers, banquet coordinators, and night auditors) can capture current-day transactions and review operational data in real-time, but are prohibited from:
-1. Tampering with or adjusting posted bills, line charges, payments, and closed folios.
-2. Backdating records to prior calendar dates, which would otherwise alter historical audit trails and closed night-audit books.
-
-Only the authenticated System Owner (**Labib Zunaedy**, `@admin`, `usr-admin-1`, `admin@lesyncpms.com`, `labibzunaedy@gmail.com`) possesses the administrative clearance to correct bills, void payments, and post backdated adjustments.
-
-#### Target Audience & Persona
-- **System Owner (Labib Zunaedy)**: Unrestricted master authority to rectify billing errors, override fiscal dates, and execute historical ledger adjustments.
-- **Hotel Operations Staff (Front Desk, Cashiers, Accounting, Banquet)**: Clean, high-efficiency data entry restricted to current business dates and non-destructive viewing.
-
-#### Key Value
-Eliminates cashier fraud, unauthorized discounts, retro-active folio manipulation, and discrepancy in NBR tax and service charge reports by freezing closed periods and enforcing single-owner financial correction.
+## 2. Root Causes Identified
+1. **Cloud Hydration Overwrites Clean-Slate & Updated Settings on Reload**:
+   - During startup hydration, the sync service checks whether the local state has active reservations (`reservations.length > 0`). When a new property is onboarded (which resets reservations to `0`) or before new bookings are created, the hydration logic assumes the local database is empty and overwrites it with an older cloud snapshot.
+2. **Delayed & Incomplete Snapshot Sync on Save**:
+   - Saving settings or onboarding a property currently triggers a debounced background timer rather than an immediate cloud push, and the top-level cloud snapshot metadata (`resort_name` and `business_date`) was reading top-level fields instead of `settings.resortName` and `settings.currentBusinessDate`.
+3. **Startup Initialization Overwrites**:
+   - Database initialization contains legacy startup overrides that reset certain property names and night-audit flags back to defaults when loading from browser storage.
+4. **Uncompressed Base64 Logo Payloads**:
+   - Uploading high-resolution PNG/JPEG logos stores raw multi-megabyte Base64 strings directly inside the state payload, which can exceed browser `localStorage` quotas (5 MB limit) or cause cloud sync request payloads to fail silently.
+5. **Form State Desynchronization**:
+   - The Settings view initializes its input fields once on mount without syncing when the underlying database settings finish hydrating.
 
 ---
 
-### 2. User Experience & Visual Design
+## 3. Architecture & Data Flow
 
-#### Key User Flows
-
-```
-[ Staff User Interaction ]
-      │
-      ├─► Opens Guest Folio Drawer / Billing Views
-      │     └─► View-Only: Line items, payment rows, and receipts visible
-      │     └─► Hidden: Edit Charge (Pencil), Void (Trash), Resettle, and Adjustment buttons
-      │
-      └─► Opens Any Booking / Payment / Journal Date Picker
-            └─► Calendar Popup: All dates before current business date are greyed out & disabled
-            └─► Input Attribute: min="YYYY-MM-DD" enforced natively
-
-[ System Owner Interaction (Labib Zunaedy) ]
-      │
-      ├─► Opens Guest Folio Drawer / Billing Views
-      │     └─► Full Action Suite: Edit Charge, Void Line, Resettle Folio, Adjustment, Void Payment
-      │     └─► Indicator: Amber "System Owner Clearance" badge on financial action panels
-      │
-      └─► Opens Any Booking / Payment / Journal Date Picker
-            └─► Unlocked Calendar: Can select historical dates (yesterday, last month, past years)
-            └─► Subtle Audit Notice: "Backdated Entry - System Owner Authorization Logged"
+```text
++-------------------------------------------------------------------------+
+|                   Settings & Property Onboarding UI                     |
+|  1. Compress uploaded logo (Canvas max 480x180 PNG/WebP, < 40 KB)       |
+|  2. Stamp settings.updatedAt = ISO Timestamp                            |
++------------------------------------+------------------------------------+
+                                     |
+                                     v
++-------------------------------------------------------------------------+
+|                    Local Persistence Layer (Dual-Key)                   |
+|  - Primary PMS State Store (full database + settings)                   |
+|  - Dedicated Property Settings Store (lightweight, quota-safe backup)   |
+|  - Removes legacy startup overrides on resortName & nightAudit flags    |
++------------------------------------+------------------------------------+
+                                     |
+                                     | Immediate Async Push (syncNow)
+                                     v
++-------------------------------------------------------------------------+
+|                Cloud Snapshot & Hydration Guard (Supabase)              |
+|  - Writes settings.resortName & settings.currentBusinessDate to cloud   |
+|  - Compares settings.updatedAt on startup hydration:                    |
+|    * If Local settings.updatedAt >= Cloud settings.updatedAt -> Keep    |
+|      local settings & push to cloud                                     |
+|    * Respects Clean-Slate onboarded properties (0 reservations)         |
++-------------------------------------------------------------------------+
 ```
 
-#### Visual Identity & SaaS Aesthetics
-- **Zero-Pill Discipline**: Statuses and metadata render as clean, unboxed typography with tabular numerals (`font-mono tabular-nums`).
-- **Owner Mode Accent**: System Owner action areas use subtle amber highlight tones (`bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20`) with clear typography rather than noisy badge clusters.
-- **Calendar Disabled State**: Date picker elements apply standard disabled opacity (`disabled:opacity-40 disabled:cursor-not-allowed`) for previous dates.
-- **Auditing Transparency**: When the System Owner performs a correction or posts a backdated entry, an instant audit record is written to `pmsService.logAudit` documenting the previous value, new value, and authorized user.
-
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 4. Planned Changes
 
-#### Decision 1: Hidden Actions vs. Disabled Tooltips
-- **Chosen Approach**: Completely hide financial correction buttons (Void, Resettle, Edit Charge, Post Adjustment) for non-owners, rather than showing disabled grey buttons.
-- **Rationale**: Reduces visual clutter for frontline cashiers, prevents cognitive friction, and strictly follows the user's explicit preference ("Allow staff to view bills with edit actions hidden").
+### A. Versioned Property Settings Persistence & Startup Guard
+- Add an explicit `updatedAt` timestamp and `isOnboardedCleanSlate` marker to the system settings record every time **Save System Settings** or **Initialize & Onboard Property** is executed.
+- Persist a dedicated, lightweight property settings record in browser storage alongside the main database snapshot so property identity, logo, tax rates, and policies are never lost even if storage is near capacity.
+- Remove legacy initialization checks that forcibly reset `resortName`, `email`, `website`, or `autoNightAuditEnabled` on page reload.
 
-#### Decision 2: Two-Tier Defense Architecture
-- **Chosen Approach**: Combine HTML5 date picker constraints (`min={isOwner ? undefined : todayStr}`) with strict runtime checks in `pmsService.ts`.
-- **Rationale**: UI-level constraints prevent user frustration before form submission; service-level invariants guarantee that even direct script injection or payload modification cannot write backdated records without System Owner clearance.
+### B. Immediate Cloud Sync & Snapshot Metadata Alignment
+- Update both **Save System Settings** and **Initialize & Onboard Property** actions to immediately execute and await a full cloud snapshot push (`syncNow`) with visual saving/synced confirmation.
+- Ensure the cloud snapshot payload maps `settings.resortName` and `settings.currentBusinessDate` directly into the cloud snapshot's top-level columns so the live server record always matches the active property profile.
 
-#### Decision 3: Centralized Date Security Utility
-- **Chosen Approach**: Implement a shared utility `src/utils/dateSecurity.ts` providing helper functions (`getMinAllowedDate`, `validateDateEntry`, `isBackdated`) used consistently across all views and modals.
-- **Rationale**: Avoids redundant `Date.now()` logic across 10+ different component files and provides a single point of maintenance for business date handling.
+### C. Hydration Protection Against Stale Cloud Snapshots
+- Update the startup cloud hydration logic to compare `settings.updatedAt` between the local state and the incoming cloud snapshot.
+- If the local state has newer property settings or was recently provisioned via **Onboard New Property (Clean Slate)**, block the older cloud snapshot from overwriting local state and immediately push the newer local state to the cloud.
+- Preserve newer property settings during background state synchronization unless the user explicitly uploads and restores a manual `.bak` backup file.
 
----
-
-### 4. Technical Architecture & Data Strategy
-
-#### System Diagram
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        User Session Context                            │
-│           authService.isSystemOwner(rbacService.getActiveUser())       │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                  ┌─────────────────┴─────────────────┐
-                  ▼                                   ▼
-         [ System Owner: TRUE ]              [ System Owner: FALSE ]
-                  │                                   │
-                  ├─► Bill Edit Controls: Visible     ├─► Bill Edit Controls: Hidden
-                  ├─► Date Pickers: Unlocked          ├─► Date Pickers: min={todayStr}
-                  └─► Service Actions: Permitted      └─► Service Actions: Denied (Throws Error)
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   pmsService Enforcement Matrix                        │
-├────────────────────────────────┬───────────────────────────────────────┤
-│ Operation                      │ Authorization Rule                    │
-├────────────────────────────────┼───────────────────────────────────────┤
-│ correctFolioItem()             │ isSystemOwner() Required (Strict)     │
-│ voidFolioItem()                │ isSystemOwner() Required (Strict)     │
-│ postFolioAdjustment()          │ isSystemOwner() Required (Strict)     │
-│ resettleFolio()                │ isSystemOwner() Required (Strict)     │
-│ voidEntireFolio()              │ isSystemOwner() Required (Strict)     │
-│ voidPayment()                  │ isSystemOwner() Required (Strict)     │
-│ createJournalVoucher(date)     │ date < today => isSystemOwner()       │
-│ recordFolioPayment(date)       │ date < today => isSystemOwner()       │
-│ createReservation(arrival)     │ arrival < today => isSystemOwner()    │
-│ createEventBooking(date)       │ date < today => isSystemOwner()       │
-│ createRestaurantOrder(date)    │ date < today => isSystemOwner()       │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Files to Update During Execution Phase
-
-1. **`src/utils/dateSecurity.ts` (New Utility)**:
-   - `getMinAllowedDate(isOwner: boolean): string | undefined`
-   - `isPastDate(dateStr: string, businessDate?: string): boolean`
-   - `assertOwnerForBackdate(dateStr: string, isOwner: boolean, operationName: string): void`
-
-2. **`src/services/pmsService.ts`**:
-   - Guard `voidFolioItem()`, `postFolioAdjustment()`, `resettleFolio()`, `voidEntireFolio()`, and `voidPayment()` to require `isSystemOwner()`.
-   - In `recordFolioPayment()`, `createJournalVoucher()`, `createReservation()`, `createEventBooking()`, and `createRestaurantOrder()`, check if the provided date is prior to current business date; if so, enforce `isSystemOwner()`.
-
-3. **`src/components/drawers/FolioDrawer.tsx`**:
-   - Detect `isOwner = authService.isSystemOwner(rbacService.getActiveUser())`.
-   - Hide Edit Charge button, Void Line Item button, Reopen/Resettle button, Void Entire Folio button, and Adjustment tab when `!isOwner`.
-
-4. **`src/views/BillingFoliosView.tsx` & `src/views/BillingPaymentsView.tsx`**:
-   - Hide Void Payment and Resettle triggers for non-owners.
-
-5. **`src/views/AccountingLedgerView.tsx`**:
-   - Enforce `min={isOwner ? undefined : todayStr}` in the Manual Journal Voucher date picker.
-   - Display informative System Owner clearance badge.
-
-6. **`src/components/drawers/NewReservationModal.tsx` & `src/components/drawers/QuickCheckInDrawer.tsx`**:
-   - Enforce `min={isOwner ? undefined : todayStr}` for arrival/check-in dates.
-
-7. **`src/views/ConventionEventsView.tsx` & `src/views/RestaurantView.tsx`**:
-   - Enforce `min={isOwner ? undefined : todayStr}` for banquet event dates and POS order dates.
+### D. Automatic Client-Side Logo Optimization & Form Sync
+- Add an automatic client-side image optimizer on both the **Property Profile** and **Onboard New Property** logo uploaders so uploaded PNG/JPG files are scaled cleanly (preserving transparency and crispness for PDFs/invoices) while keeping Base64 strings lightweight and quota-safe.
+- Synchronize the Settings view form state when database settings update so the UI always reflects the latest persisted configuration.

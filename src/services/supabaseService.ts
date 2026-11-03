@@ -277,8 +277,8 @@ export async function syncSnapshotDirectlyToSupabase(
       .upsert(
         {
           snapshot_key: 'current_pms_state',
-          resort_name: statePayload.resortName || 'Heritage Resort & Spa',
-          business_date: statePayload.businessDate || new Date().toISOString().slice(0, 10),
+          resort_name: statePayload.settings?.resortName || statePayload.resortName || 'Heritage Resort & Spa',
+          business_date: statePayload.settings?.currentBusinessDate || statePayload.businessDate || new Date().toISOString().slice(0, 10),
           state_payload: statePayload,
           synced_by: syncedBy,
           total_entities: totalEntities,

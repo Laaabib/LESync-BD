@@ -426,8 +426,8 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
           .upsert(
             {
               snapshot_key: 'current_pms_state',
-              resort_name: fullState.resortName || 'Heritage Resort & Spa',
-              business_date: fullState.businessDate || new Date().toISOString().slice(0, 10),
+              resort_name: fullState.settings?.resortName || fullState.resortName || 'Heritage Resort & Spa',
+              business_date: fullState.settings?.currentBusinessDate || fullState.businessDate || new Date().toISOString().slice(0, 10),
               state_payload: fullState,
               synced_by: syncedBy,
               total_entities: totalEntities,
@@ -493,12 +493,15 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
 
     const nextVersion = (existing?.version || 0) + 1;
 
+    const snapshotResortName = fullState.settings?.resortName || fullState.resortName || 'Heritage Resort & Spa';
+    const snapshotBusinessDate = fullState.settings?.currentBusinessDate || fullState.businessDate || '2026-08-31';
+
     await db
       .insert(pmsSnapshots)
       .values({
         snapshotKey: 'current_pms_state',
-        resortName: fullState.resortName || 'Heritage Resort & Spa',
-        businessDate: fullState.businessDate || '2026-08-31',
+        resortName: snapshotResortName,
+        businessDate: snapshotBusinessDate,
         statePayload: fullState,
         version: nextVersion,
         syncedBy,
@@ -508,8 +511,8 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       .onConflictDoUpdate({
         target: pmsSnapshots.snapshotKey,
         set: {
-          resortName: fullState.resortName || 'Heritage Resort & Spa',
-          businessDate: fullState.businessDate || '2026-08-31',
+          resortName: snapshotResortName,
+          businessDate: snapshotBusinessDate,
           statePayload: fullState,
           version: nextVersion,
           syncedBy,
@@ -1417,8 +1420,8 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
         const sb = createClient(sbUrl, sbKey);
         await sb.from('pms_snapshots').upsert({
           snapshot_key: 'current_pms_state',
-          resort_name: fullState.resortName || 'Heritage Resort & Spa',
-          business_date: fullState.businessDate || '2026-08-31',
+          resort_name: fullState.settings?.resortName || fullState.resortName || 'Heritage Resort & Spa',
+          business_date: fullState.settings?.currentBusinessDate || fullState.businessDate || '2026-08-31',
           state_payload: fullState,
           version: 1,
           synced_by: syncedBy,

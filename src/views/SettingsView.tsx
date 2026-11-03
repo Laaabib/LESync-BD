@@ -16,10 +16,74 @@ interface SettingsProps {
   onNavigateToBackup?: () => void;
 }
 
+function optimizeLogoDataUrl(rawDataUrl: string): Promise<string> {
+  if (!rawDataUrl || !rawDataUrl.startsWith('data:image/') || rawDataUrl.length < 35000) {
+    return Promise.resolve(rawDataUrl || '');
+  }
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onerror = () => resolve(rawDataUrl);
+    img.onload = () => {
+      try {
+        const maxWidth = 360;
+        const maxHeight = 140;
+        let width = img.width || maxWidth;
+        let height = img.height || maxHeight;
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.max(1, Math.round(width * ratio));
+          height = Math.max(1, Math.round(height * ratio));
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(rawDataUrl);
+          return;
+        }
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        let compressed = canvas.toDataURL('image/png');
+        if (compressed.length > 45000) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const jpegCompressed = canvas.toDataURL('image/jpeg', 0.85);
+          if (jpegCompressed.length < compressed.length) {
+            compressed = jpegCompressed;
+          }
+        }
+        resolve(compressed.length < rawDataUrl.length ? compressed : rawDataUrl);
+      } catch {
+        resolve(rawDataUrl);
+      }
+    };
+    img.src = rawDataUrl;
+  });
+}
+
+function compressLogoImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.onload = async (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      if (!rawDataUrl) {
+        reject(new Error('Empty image data'));
+        return;
+      }
+      const optimized = await optimizeLogoDataUrl(rawDataUrl);
+      resolve(optimized);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property', onNavigate, onNavigateToBackup }) => {
   const [db, setDb] = useState(pmsService.getState());
   const [activeUser, setActiveUser] = useState(() => rbacService.getActiveUser());
-  const isOwner = authService.isSystemOwner(activeUser);
+  const isOwner = authService.isSystemOwner(activeUser) || pmsService.isSystemOwner(activeUser);
 
   useEffect(() => {
     const unsubPms = pmsService.subscribe(setDb);
@@ -109,62 +173,142 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   const [autoNightAuditTime, setAutoNightAuditTime] = useState(db.settings?.autoNightAuditTime || '06:00');
 
   const [savedMessage, setSavedMessage] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const lastHydratedSettingsRef = useRef<string>(
+    `${db.settings?.updatedAt || ''}:${db.settings?.resortName || ''}`
+  );
+
+  // Automatically downscale any oversized existing base64 logo so it never exceeds localStorage or cloud payload limits
+  useEffect(() => {
+    if (logoUrl && logoUrl.startsWith('data:image/') && logoUrl.length > 45000) {
+      optimizeLogoDataUrl(logoUrl).then((compact) => {
+        if (compact && compact.length < logoUrl.length) {
+          setLogoUrl(compact);
+        }
+      }).catch(() => {});
+    }
+  }, [logoUrl]);
+
+  // Keep form fields synchronized when db.settings updates via cloud hydration or provisioning
+  useEffect(() => {
+    const s = db.settings;
+    if (!s) return;
+    const signature = `${s.updatedAt || ''}:${s.resortName || ''}`;
+    if (signature !== lastHydratedSettingsRef.current) {
+      lastHydratedSettingsRef.current = signature;
+      setResortName(s.resortName || 'LESync Resort & Convention Hall');
+      setAddress(s.address || 'Joypara, Dohar, Dhaka-1330, Bangladesh');
+      setPhone(s.phone || '+8801330480273');
+      setEmail(s.email || 'info@lesyncpms.com');
+      setWebsite(s.website || '');
+      setLogoUrl(s.logoUrl || '');
+      setBinNumber(s.binNumber || '');
+      setTradeLicense(s.tradeLicense || '');
+      setVatRate(s.vatRate ?? s.taxRatePercent ?? 15);
+      setServiceCharge(s.serviceChargeRate ?? s.serviceChargePercent ?? 10);
+      setCurrencySymbol(s.currencySymbol || '৳');
+      setCheckInTime(s.checkInTime || '14:00');
+      setCheckOutTime(s.checkOutTime || '12:00');
+      setAllowOverbooking(s.allowOverbooking ?? false);
+      setRequireDeposit(s.requireDepositForReservation ?? true);
+      setFolioPrefix(s.folioPrefix || 'FOL-');
+      setInvPrefix(s.invPrefix || 'INV-');
+      setResPrefix(s.resPrefix || 'RES-');
+      setBanquetPrefix(s.banquetPrefix || 'EVT-');
+      setPoPrefix(s.poPrefix || 'PO-');
+      setGrnPrefix(s.grnPrefix || 'GRN-');
+      setPosPrefix(s.posPrefix || 'POS-');
+      setKotPrefix(s.kotPrefix || 'KOT-');
+      setJvPrefix(s.jvPrefix || 'JV-');
+      setReceiptPrefix(s.receiptPrefix || 'RCT-');
+      setNumberPadding(s.numberPadding || 5);
+      setNumberDateFormat(s.numberDateFormat || 'YYYY');
+      setAutoDirtyOnCheckout(s.autoDirtyOnCheckout ?? true);
+      setAllowDirectRoomPost(s.allowDirectRoomPost ?? true);
+      setStopPostStrict(s.stopPostStrict ?? true);
+      setLateCheckoutGraceMinutes(s.lateCheckoutGraceMinutes ?? 30);
+      setAutoNightAuditEnabled(s.autoNightAuditEnabled ?? false);
+      setAutoNightAuditTime(s.autoNightAuditTime || '06:00');
+    }
+  }, [db.settings]);
 
   // Restore file input ref
   const restoreFileRef = useRef<HTMLInputElement>(null);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isOwner) {
       alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
       return;
     }
-    
-    // Save all parameters directly to pmsService and localStorage
-    pmsService.updateSystemSettings({
-      resortName,
-      address,
-      phone,
-      email,
-      website,
-      logoUrl,
-      binNumber,
-      tradeLicense,
-      currencySymbol,
-      taxRatePercent: Number(vatRate),
-      vatRate: Number(vatRate),
-      serviceChargePercent: Number(serviceCharge),
-      serviceChargeRate: Number(serviceCharge),
-      checkInTime,
-      checkOutTime,
-      allowOverbooking,
-      requireDepositForReservation: requireDeposit,
-      autoNightAuditEnabled,
-      autoNightAuditTime,
-      folioPrefix,
-      invPrefix,
-      resPrefix,
-      banquetPrefix,
-      poPrefix,
-      grnPrefix,
-      posPrefix,
-      kotPrefix,
-      jvPrefix,
-      receiptPrefix,
-      numberPadding,
-      numberDateFormat,
-      autoDirtyOnCheckout,
-      allowDirectRoomPost,
-      stopPostStrict,
-      lateCheckoutGraceMinutes
-    });
 
-    setSavedMessage('All resort settings, operational policies, tax rules, and document numbering schemes saved successfully.');
-    setTimeout(() => setSavedMessage(''), 4000);
+    setIsSavingSettings(true);
+    setBackupMessage(null);
+    try {
+      const optimizedLogo = await optimizeLogoDataUrl(logoUrl);
+      if (optimizedLogo !== logoUrl) {
+        setLogoUrl(optimizedLogo);
+      }
+
+      // Save all parameters directly to pmsService and localStorage
+      pmsService.updateSystemSettings({
+        resortName: resortName.trim(),
+        address: address.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        website: website.trim(),
+        logoUrl: optimizedLogo,
+        binNumber: binNumber.trim(),
+        tradeLicense: tradeLicense.trim(),
+        currencySymbol: currencySymbol.trim() || '৳',
+        taxRatePercent: Number(vatRate),
+        vatRate: Number(vatRate),
+        serviceChargePercent: Number(serviceCharge),
+        serviceChargeRate: Number(serviceCharge),
+        checkInTime,
+        checkOutTime,
+        allowOverbooking,
+        requireDepositForReservation: requireDeposit,
+        autoNightAuditEnabled,
+        autoNightAuditTime,
+        folioPrefix,
+        invPrefix,
+        resPrefix,
+        banquetPrefix,
+        poPrefix,
+        grnPrefix,
+        posPrefix,
+        kotPrefix,
+        jvPrefix,
+        receiptPrefix,
+        numberPadding,
+        numberDateFormat,
+        autoDirtyOnCheckout,
+        allowDirectRoomPost,
+        stopPostStrict,
+        lateCheckoutGraceMinutes
+      });
+
+      const updatedSettings = pmsService.getSettings();
+      lastHydratedSettingsRef.current = `${updatedSettings?.updatedAt || ''}:${updatedSettings?.resortName || ''}`;
+
+      await cloudSqlSyncService.syncNow('System Settings Updated', { force: true });
+
+      setSavedMessage('All resort settings, property logo, operational policies, tax rules, and numbering schemes saved and synced to cloud.');
+      setTimeout(() => setSavedMessage(''), 5000);
+    } catch (err: any) {
+      console.error('Failed to save system settings:', err);
+      setBackupMessage({
+        type: 'error',
+        text: err?.message || 'An error occurred while saving system settings.'
+      });
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
-  const handleProvisionNewProperty = (e: React.FormEvent) => {
+  const handleProvisionNewProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isOwner) {
       alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
@@ -181,34 +325,56 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
     const confirmText = `⚠️ CONFIRM PROPERTY PROVISIONING\n\nAre you sure you want to provision "${provResortName}"?\n\nOperation:\n• ${modeLabel}\n• Set business date to: ${provBusinessDate}\n• All reports, folios, bills, and receipts will immediately display: "${provResortName}"\n\nThis action cannot be undone!`;
 
     if (window.confirm(confirmText)) {
-      pmsService.provisionNewProperty({
-        resortName: provResortName,
-        address: provAddress || address,
-        phone: provPhone || phone,
-        email: provEmail || email,
-        logoUrl: provLogoUrl || logoUrl,
-        binNumber: provBin,
-        tradeLicense: provLicense,
-        currencySymbol: provCurrency,
-        vatRate: Number(provVat),
-        serviceCharge: Number(provServiceCharge),
-        currentBusinessDate: provBusinessDate,
-        cleanMode: provCleanMode
-      });
+      setIsSavingSettings(true);
+      setBackupMessage(null);
+      try {
+        const finalAddress = (provAddress || address).trim();
+        const finalPhone = (provPhone || phone).trim();
+        const finalEmail = (provEmail || email).trim();
+        const finalLogo = await optimizeLogoDataUrl(provLogoUrl || logoUrl);
 
-      setResortName(provResortName);
-      if (provLogoUrl) setLogoUrl(provLogoUrl);
-      if (provAddress) setAddress(provAddress);
-      if (provPhone) setPhone(provPhone);
-      if (provEmail) setEmail(provEmail);
-      setBinNumber(provBin);
-      setTradeLicense(provLicense);
-      setCurrencySymbol(provCurrency);
-      setVatRate(Number(provVat));
-      setServiceCharge(Number(provServiceCharge));
+        pmsService.provisionNewProperty({
+          resortName: provResortName.trim(),
+          address: finalAddress,
+          phone: finalPhone,
+          email: finalEmail,
+          logoUrl: finalLogo,
+          binNumber: provBin.trim(),
+          tradeLicense: provLicense.trim(),
+          currencySymbol: provCurrency.trim() || '৳',
+          vatRate: Number(provVat),
+          serviceCharge: Number(provServiceCharge),
+          currentBusinessDate: provBusinessDate,
+          cleanMode: provCleanMode
+        });
 
-      setProvSuccess(`Property "${provResortName}" has been successfully provisioned! All previous guest records and invoices have been cleaned. All future reports will bear this property's name.`);
-      setTimeout(() => setProvSuccess(''), 10000);
+        setResortName(provResortName.trim());
+        setLogoUrl(finalLogo);
+        setAddress(finalAddress);
+        setPhone(finalPhone);
+        setEmail(finalEmail);
+        setBinNumber(provBin.trim());
+        setTradeLicense(provLicense.trim());
+        setCurrencySymbol(provCurrency.trim() || '৳');
+        setVatRate(Number(provVat));
+        setServiceCharge(Number(provServiceCharge));
+
+        const updatedSettings = pmsService.getSettings();
+        lastHydratedSettingsRef.current = `${updatedSettings?.updatedAt || ''}:${updatedSettings?.resortName || ''}`;
+
+        await cloudSqlSyncService.syncNow(`Provisioned New Property: ${provResortName.trim()}`, { force: true });
+
+        setProvSuccess(`Property "${provResortName.trim()}" has been successfully provisioned and synced to the live cloud database! All previous guest records and invoices have been cleaned.`);
+        setTimeout(() => setProvSuccess(''), 10000);
+      } catch (err: any) {
+        console.error('Failed to provision new property:', err);
+        setBackupMessage({
+          type: 'error',
+          text: err?.message || 'An error occurred while provisioning the property.'
+        });
+      } finally {
+        setIsSavingSettings(false);
+      }
     }
   };
 
@@ -522,16 +688,21 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                           type="file"
                           accept="image/png, image/jpeg, image/webp"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (uploadEvent) => {
-                                if (typeof uploadEvent.target?.result === 'string') {
-                                  setLogoUrl(uploadEvent.target.result);
-                                }
-                              };
-                              reader.readAsDataURL(file);
+                              try {
+                                const compressed = await compressLogoImage(file);
+                                setLogoUrl(compressed);
+                              } catch {
+                                const reader = new FileReader();
+                                reader.onload = (uploadEvent) => {
+                                  if (typeof uploadEvent.target?.result === 'string') {
+                                    setLogoUrl(uploadEvent.target.result);
+                                  }
+                                };
+                                reader.readAsDataURL(file);
+                              }
                             }
                           }}
                         />
@@ -816,16 +987,21 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => {
+                          onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              const r = new FileReader();
-                              r.onload = ev => {
-                                if (typeof ev.target?.result === 'string') {
-                                  setProvLogoUrl(ev.target.result);
-                                }
-                              };
-                              r.readAsDataURL(file);
+                              try {
+                                const compressed = await compressLogoImage(file);
+                                setProvLogoUrl(compressed);
+                              } catch {
+                                const r = new FileReader();
+                                r.onload = ev => {
+                                  if (typeof ev.target?.result === 'string') {
+                                    setProvLogoUrl(ev.target.result);
+                                  }
+                                };
+                                r.readAsDataURL(file);
+                              }
                             }
                           }}
                         />
@@ -934,11 +1110,12 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                 </div>
                 <button
                   type="button"
+                  disabled={isSavingSettings}
                   onClick={handleProvisionNewProperty}
-                  className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl transition shadow-lg flex items-center justify-center space-x-2 text-xs cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-60 text-slate-950 font-bold rounded-xl transition shadow-lg flex items-center justify-center space-x-2 text-xs cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>Provision New Property & Clean Database</span>
+                  <span>{isSavingSettings ? 'Provisioning & Syncing to Cloud...' : 'Provision New Property & Clean Database'}</span>
                 </button>
               </div>
             </div>
@@ -1239,15 +1416,18 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
               <div className="pt-2 flex justify-end">
                 <button
                   type="submit"
-                  className="flex items-center space-x-1.5 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl transition shadow text-xs cursor-pointer"
+                  disabled={isSavingSettings}
+                  className="flex items-center space-x-1.5 px-6 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 font-bold rounded-xl transition shadow text-xs cursor-pointer"
                 >
                   <Save className="w-4 h-4" />
                   <span>
-                    {activeTab === 'tax' ? 'Save Tax & VAT Rates' :
-                     activeTab === 'service-charge' ? 'Save Service Charge Rules' :
-                     activeTab === 'numbering' ? 'Save Numbering Schemes' :
-                     activeTab === 'audit' ? 'Save Night Audit Schedule' :
-                     'Save System Settings'}
+                    {isSavingSettings ? 'Saving & Syncing...' : (
+                      activeTab === 'tax' ? 'Save Tax & VAT Rates' :
+                      activeTab === 'service-charge' ? 'Save Service Charge Rules' :
+                      activeTab === 'numbering' ? 'Save Numbering Schemes' :
+                      activeTab === 'audit' ? 'Save Night Audit Schedule' :
+                      'Save System Settings'
+                    )}
                   </span>
                 </button>
               </div>

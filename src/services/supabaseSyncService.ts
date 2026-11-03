@@ -2,7 +2,7 @@ import { pmsService } from './pmsService';
 import { rbacService } from './rbacService';
 import { adminMasterService } from './adminMasterService';
 import { authService } from './authService';
-import { PmsDatabaseState } from './mockPmsDatabase';
+import { PmsDatabaseState, loadPersistedSettings, savePersistedSettings } from './mockPmsDatabase';
 import {
   getSupabaseConfig,
   getSupabaseClient,
@@ -136,6 +136,7 @@ class SupabaseSyncService {
   private listeners: Set<SyncListener> = new Set();
   private pendingChanges = false;
   private isSyncing = false;
+  private resyncRequested = false;
   private overdueThresholdMinutes = 15;
 
   private currentStatus: SupabaseSyncStatus = {
@@ -389,8 +390,11 @@ class SupabaseSyncService {
     this.notifyListeners();
   }
 
-  public async syncEntirePmsState(): Promise<{ success: boolean; totalEntities?: number; message?: string }> {
-    if (!this.isCloudSyncEnabled()) {
+  private forceNextSync = false;
+
+  public async syncEntirePmsState(options?: { force?: boolean }): Promise<{ success: boolean; totalEntities?: number; message?: string }> {
+    const isForced = Boolean(options?.force || this.forceNextSync);
+    if (!isForced && !this.isCloudSyncEnabled()) {
       console.info('[Cloud Sync] Skipped: Cloud sync is paused in IDE/Dev mode to protect live database.');
       this.currentStatus.cloudSyncActive = false;
       this.notifyListeners();
@@ -398,10 +402,14 @@ class SupabaseSyncService {
     }
 
     if (this.isSyncing) {
-      return { success: false, message: 'Sync operation already in progress' };
+      this.resyncRequested = true;
+      if (isForced) this.forceNextSync = true;
+      return { success: true, message: 'Sync queued after current operation completes' };
     }
 
     this.isSyncing = true;
+    this.resyncRequested = false;
+    this.forceNextSync = false;
     this.currentStatus.isSyncing = true;
     this.currentStatus.cloudSyncActive = true;
     this.currentStatus.lastAttemptAt = new Date().toISOString();
@@ -409,6 +417,11 @@ class SupabaseSyncService {
 
     try {
       const pmsState = pmsService.getState();
+      const persistedSettings = loadPersistedSettings();
+      const effectiveSettings = (persistedSettings?.updatedAt && (!pmsState.settings?.updatedAt || persistedSettings.updatedAt >= pmsState.settings.updatedAt))
+        ? { ...pmsState.settings, ...persistedSettings }
+        : pmsState.settings;
+
       const rbacUsers = rbacService.getUsers();
       const adminRoles = rbacService.getRoles();
       const adminDepartments = rbacService.getDepartments();
@@ -422,6 +435,9 @@ class SupabaseSyncService {
 
       const statePayload = {
         ...pmsState,
+        settings: effectiveSettings,
+        resortName: effectiveSettings?.resortName || 'Heritage Resort & Spa',
+        businessDate: effectiveSettings?.currentBusinessDate || new Date().toISOString().slice(0, 10),
         users: rbacUsers.map(u => ({
           id: u.id,
           name: u.name,
@@ -460,29 +476,49 @@ class SupabaseSyncService {
 
       let result: any = null;
       let serverSyncWorked = false;
+      let directSyncWorked = false;
+      let directVersion: number | undefined;
 
-      // 1. Attempt Serverless Backend sync with 15s timeout
+      // 1. Always push directly to Supabase pms_snapshots when client is configured so browser hydration is 100% up-to-date
+      const clientConfig = getSupabaseConfig();
+      if (clientConfig.isConfigured) {
+        try {
+          const directResult = await syncSnapshotDirectlyToSupabase(statePayload, 'Vercel Web Client');
+          if (directResult.success) {
+            directSyncWorked = true;
+            directVersion = directResult.version;
+          }
+        } catch (directErr: any) {
+          console.warn('Direct Supabase snapshot sync notice:', directErr?.message || directErr);
+        }
+      }
+
+      // 2. Also attempt Serverless Backend sync with 15s timeout
       try {
         result = await safeJsonFetch<any>('/api/supabase/sync-all', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(statePayload),
         }, 15000);
-        if (result?.success) serverSyncWorked = true;
+        if (result?.success && !result?.localOnly && result?.syncedToCloud !== false) {
+          serverSyncWorked = true;
+        }
       } catch (backErr: any) {
         console.warn('Backend /api/supabase/sync-all notice:', backErr?.message || backErr);
       }
 
-      // 2. If server sync succeeded:
-      if (serverSyncWorked && result?.success) {
-        const syncTimestamp = result.timestamp || new Date().toISOString();
+      // 3. If either direct Supabase sync or server sync succeeded:
+      if (directSyncWorked || serverSyncWorked) {
+        const syncTimestamp = result?.timestamp || new Date().toISOString();
         this.currentStatus.lastSyncedAt = syncTimestamp;
         this.currentStatus.lastSyncStatus = 'success';
         this.currentStatus.lastErrorMessage = null;
         this.currentStatus.lastFailedAt = null;
         this.currentStatus.error = null;
-        this.currentStatus.snapshotVersion = result.version || this.currentStatus.snapshotVersion + 1;
-        this.currentStatus.totalEntities = result.totalEntities || 0;
+        this.currentStatus.connected = true;
+        this.currentStatus.configured = true;
+        this.currentStatus.snapshotVersion = directVersion || result?.version || this.currentStatus.snapshotVersion + 1;
+        this.currentStatus.totalEntities = result?.totalEntities || this.currentStatus.totalEntities || 0;
         this.pendingChanges = false;
 
         if (typeof window !== 'undefined') {
@@ -491,36 +527,14 @@ class SupabaseSyncService {
           localStorage.removeItem('pms_supabase_last_failed_at');
         }
 
-        await this.checkStatus();
-        return { success: true, totalEntities: result.totalEntities };
-      }
-
-      // 3. Fallback: Direct Client-Side Supabase Sync (100% reliable on Vercel deployments)
-      const clientConfig = getSupabaseConfig();
-      if (clientConfig.isConfigured) {
-        const directResult = await syncSnapshotDirectlyToSupabase(statePayload, 'Vercel Web Client');
-        if (directResult.success) {
-          const syncTimestamp = new Date().toISOString();
-          this.currentStatus.lastSyncedAt = syncTimestamp;
-          this.currentStatus.lastSyncStatus = 'success';
-          this.currentStatus.lastErrorMessage = null;
-          this.currentStatus.lastFailedAt = null;
-          this.currentStatus.error = null;
-          this.currentStatus.connected = true;
-          this.currentStatus.configured = true;
-          this.currentStatus.snapshotVersion = directResult.version || this.currentStatus.snapshotVersion + 1;
-          this.pendingChanges = false;
-
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('pms_supabase_last_sync', syncTimestamp);
-            localStorage.removeItem('pms_supabase_last_error');
-            localStorage.removeItem('pms_supabase_last_failed_at');
-          }
-
-          return { success: true, message: 'Synchronized directly to Supabase cloud snapshot.' };
-        } else {
-          throw new Error(directResult.message || 'Direct Supabase client sync failed');
+        if (serverSyncWorked) {
+          await this.checkStatus();
         }
+        return {
+          success: true,
+          totalEntities: result?.totalEntities,
+          message: directSyncWorked ? 'Synchronized directly to Supabase cloud snapshot.' : 'Synchronized via backend.'
+        };
       }
 
       // 4. If both failed, provide clean guidance
@@ -545,12 +559,20 @@ class SupabaseSyncService {
       this.isSyncing = false;
       this.currentStatus.isSyncing = false;
       this.notifyListeners();
+      if (this.resyncRequested) {
+        this.resyncRequested = false;
+        const shouldForce = this.forceNextSync;
+        this.forceNextSync = false;
+        setTimeout(() => {
+          this.syncEntirePmsState({ force: shouldForce }).catch(() => {});
+        }, 150);
+      }
     }
   }
 
-  private applyRestoredState(state: any): void {
+  private applyRestoredState(state: any, fromCloudHydration = true): void {
     if (!state) return;
-    pmsService.restoreFullBackupPayload({ pmsDatabase: state });
+    pmsService.restoreFullBackupPayload({ pmsDatabase: state }, { fromCloudHydration });
 
     // Synchronize users & usernames from restored state without overwriting local admin edits
     if (Array.isArray(state.users) && state.users.length > 0) {
@@ -663,22 +685,49 @@ class SupabaseSyncService {
         const localLastSync = typeof window !== 'undefined' ? localStorage.getItem('pms_supabase_last_sync') : null;
         const cloudLastSync = snapData.last_synced_at;
         const localState = pmsService.getState();
-        const localHasData = Array.isArray(localState?.reservations) && localState.reservations.length > 0;
-        const isCleanStateActive = typeof window !== 'undefined' && (
+        const persistedSettings = loadPersistedSettings();
+        const localSettingsUpdatedAt = persistedSettings?.updatedAt || localState?.settings?.updatedAt || (typeof window !== 'undefined' ? localStorage.getItem('pms_settings_last_saved_at') : '') || '';
+        const remoteSettingsUpdatedAt = snapData.state_payload?.settings?.updatedAt || '';
+        const localSettingsAreNewer = Boolean(localSettingsUpdatedAt && (!remoteSettingsUpdatedAt || localSettingsUpdatedAt >= remoteSettingsUpdatedAt));
+        const localHasData = (Array.isArray(localState?.reservations) && localState.reservations.length > 0) || Boolean(localSettingsUpdatedAt);
+        const isCleanStateActive = Boolean(persistedSettings?.isOnboardedCleanSlate || localState?.settings?.isOnboardedCleanSlate) || (typeof window !== 'undefined' && (
           localStorage.getItem('pms_clean_state_active') === 'true' ||
           localStorage.getItem('cculb_clean_state_v1') === 'true'
-        );
+        ));
 
         if (isCleanStateActive) {
-          // Clean state is active: NEVER restore old bookings/stays from cloud. Sync clean state to cloud instead.
-          const remoteHasOldBookings = Array.isArray(snapData.state_payload?.reservations) && snapData.state_payload.reservations.length > 0;
-          if (remoteHasOldBookings) {
-            this.syncEntirePmsState().catch(() => {});
+          // Clean state or onboarded property is active: only restore if remote snapshot itself is a strictly newer onboarded state
+          if (remoteSettingsUpdatedAt && localSettingsUpdatedAt && remoteSettingsUpdatedAt > localSettingsUpdatedAt) {
+            this.applyRestoredState(snapData.state_payload, true);
+          } else {
+            const remoteHasOldBookings = Array.isArray(snapData.state_payload?.reservations) && snapData.state_payload.reservations.length > 0;
+            const currentResortName = persistedSettings?.resortName || localState?.settings?.resortName;
+            const remoteSettingsMismatch = snapData.state_payload?.settings?.resortName !== currentResortName;
+            if (remoteHasOldBookings || remoteSettingsMismatch || localSettingsAreNewer) {
+              this.syncEntirePmsState({ force: true }).catch(() => {});
+            }
           }
         } else {
           // Only overwrite local database if local has no data or cloud is strictly newer
           if (!localHasData || (cloudLastSync && (!localLastSync || cloudLastSync > localLastSync))) {
-            this.applyRestoredState(snapData.state_payload);
+            const payloadToApply = localSettingsAreNewer
+              ? {
+                  ...snapData.state_payload,
+                  settings: {
+                    ...(snapData.state_payload?.settings || {}),
+                    ...(localState?.settings || {}),
+                    ...(persistedSettings || {})
+                  }
+                }
+              : snapData.state_payload;
+            this.applyRestoredState(payloadToApply, true);
+          }
+          // If local property settings were saved more recently than the cloud snapshot, push them to cloud immediately
+          if (localSettingsAreNewer && (
+            snapData.state_payload?.settings?.resortName !== (persistedSettings?.resortName || localState?.settings?.resortName) ||
+            snapData.state_payload?.settings?.updatedAt !== localSettingsUpdatedAt
+          )) {
+            this.syncEntirePmsState({ force: true }).catch(() => {});
           }
         }
         if (snapData.last_synced_at) {
@@ -773,9 +822,9 @@ class SupabaseSyncService {
     this.hydrateFromSupabase().catch(() => {});
   }
 
-  public async syncNow(reason?: string): Promise<boolean> {
+  public async syncNow(reason?: string, options?: { force?: boolean }): Promise<boolean> {
     try {
-      const res = await this.syncEntirePmsState();
+      const res = await this.syncEntirePmsState(options);
       return res.success;
     } catch {
       return false;
