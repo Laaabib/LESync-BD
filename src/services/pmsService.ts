@@ -453,6 +453,14 @@ export const pmsService = {
     return { merged, hadLocalPreserved };
   },
 
+  getCurrentUser(): User | any {
+    try {
+      return state?.currentUser || rbacService.getActiveUser() || null;
+    } catch {
+      return state?.currentUser || null;
+    }
+  },
+
   isSystemOwner(user?: User | any): boolean {
     const checkCandidate = (u: any): boolean => {
       if (!u) return false;
@@ -470,12 +478,16 @@ export const pmsService = {
         role === 'super admin'
       );
     };
-    return checkCandidate(user) || checkCandidate(this.getCurrentUser()) || checkCandidate(rbacService.getActiveUser());
+    return (
+      checkCandidate(user) ||
+      checkCandidate(state?.currentUser) ||
+      checkCandidate(rbacService.getActiveUser())
+    );
   },
 
   resetToCleanState() {
-    const currentUser = this.getCurrentUser();
-    const isOwner = this.isSystemOwner(currentUser);
+    const currentUser = pmsService.getCurrentUser();
+    const isOwner = pmsService.isSystemOwner(currentUser);
     if (!isOwner) {
       throw new Error('Access Denied: Only the root System Owner (@admin - Labib Zunaedy) is authorized to vanish all app data and reset to clean state.');
     }
@@ -550,8 +562,8 @@ export const pmsService = {
   },
 
   resetAllAccountBalances() {
-    const currentUser = this.getCurrentUser();
-    if (!this.isSystemOwner(currentUser)) {
+    const currentUser = pmsService.getCurrentUser();
+    if (!pmsService.isSystemOwner(currentUser)) {
       throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset all financial account balances.');
     }
     if (!state.glAccounts) state.glAccounts = [];
@@ -648,8 +660,8 @@ export const pmsService = {
     currentBusinessDate?: string;
     cleanMode: 'clean_transactions_keep_rooms' | 'fresh_slate_starter_rooms';
   }) {
-    const currentUser = this.getCurrentUser();
-    if (!this.isSystemOwner(currentUser)) {
+    const currentUser = pmsService.getCurrentUser();
+    if (!pmsService.isSystemOwner(currentUser)) {
       throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
     }
     const todayStr = config.currentBusinessDate || new Date().toISOString().split('T')[0];
@@ -6120,8 +6132,8 @@ export const pmsService = {
   },
 
   updateSystemSettings(updates: Partial<SystemSetting>): { success: boolean; message: string } {
-    const currentUser = this.getCurrentUser();
-    if (!this.isSystemOwner(currentUser)) {
+    const currentUser = pmsService.getCurrentUser();
+    if (!pmsService.isSystemOwner(currentUser)) {
       throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
     }
     const nowIso = new Date().toISOString();
@@ -6355,8 +6367,8 @@ export const pmsService = {
   restoreFullBackupPayload(rawPayload: any, options?: { fromCloudHydration?: boolean }): { success: boolean; message: string; details: any } {
     const isCloudHydration = Boolean(options?.fromCloudHydration);
     if (!isCloudHydration) {
-      const currentUser = this.getCurrentUser();
-      if (!this.isSystemOwner(currentUser)) {
+      const currentUser = pmsService.getCurrentUser();
+      if (!pmsService.isSystemOwner(currentUser)) {
         throw new Error('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup snapshots.');
       }
     }
