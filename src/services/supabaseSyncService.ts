@@ -8,6 +8,8 @@ import {
   getSupabaseClient,
   syncSnapshotDirectlyToSupabase,
   loadSnapshotDirectlyFromSupabase,
+  syncSettingsDirectlyToSupabase,
+  loadSettingsDirectlyFromSupabase,
   testSupabaseClientConnection,
 } from './supabaseService';
 
@@ -214,6 +216,9 @@ class SupabaseSyncService {
 
   private initPmsSubscription(): void {
     pmsService.subscribe(() => {
+      if (pmsService.isRemoteUpdateActive()) {
+        return;
+      }
       this.pendingChanges = true;
       this.scheduleDebouncedSync(3000);
     });
@@ -391,6 +396,25 @@ class SupabaseSyncService {
   }
 
   private forceNextSync = false;
+  private activeSyncPromise: Promise<{ success: boolean; totalEntities?: number; message?: string }> | null = null;
+
+  public async syncSettingsImmediately(settings?: any): Promise<boolean> {
+    const targetSettings = settings || pmsService.getSettings();
+    let directSettingsWorked = false;
+    try {
+      const res = await syncSettingsDirectlyToSupabase(targetSettings, 'System Owner Settings Save');
+      directSettingsWorked = Boolean(res.success);
+    } catch (err: any) {
+      console.warn('Direct settings sync notice:', err?.message || err);
+    }
+
+    try {
+      const fullRes = await this.syncEntirePmsState({ force: true });
+      return Boolean(directSettingsWorked || fullRes.success);
+    } catch {
+      return directSettingsWorked;
+    }
+  }
 
   public async syncEntirePmsState(options?: { force?: boolean }): Promise<{ success: boolean; totalEntities?: number; message?: string }> {
     const isForced = Boolean(options?.force || this.forceNextSync);
@@ -401,10 +425,17 @@ class SupabaseSyncService {
       return { success: true, message: 'Cloud sync paused in IDE sandbox mode. Changes kept local.' };
     }
 
-    if (this.isSyncing) {
+    if (this.isSyncing && this.activeSyncPromise) {
       this.resyncRequested = true;
       if (isForced) this.forceNextSync = true;
-      return { success: true, message: 'Sync queued after current operation completes' };
+      try {
+        await this.activeSyncPromise;
+      } catch {
+        // Ignore error from previous sync and run the newly requested sync
+      }
+      if (!this.resyncRequested && !isForced) {
+        return { success: true, message: 'Synchronized via active sync batch' };
+      }
     }
 
     this.isSyncing = true;
@@ -415,6 +446,7 @@ class SupabaseSyncService {
     this.currentStatus.lastAttemptAt = new Date().toISOString();
     this.notifyListeners();
 
+    const executeBatch = async (): Promise<{ success: boolean; totalEntities?: number; message?: string }> => {
     try {
       const pmsState = pmsService.getState();
       const persistedSettings = loadPersistedSettings();
@@ -557,6 +589,7 @@ class SupabaseSyncService {
       throw error;
     } finally {
       this.isSyncing = false;
+      this.activeSyncPromise = null;
       this.currentStatus.isSyncing = false;
       this.notifyListeners();
       if (this.resyncRequested) {
@@ -565,9 +598,13 @@ class SupabaseSyncService {
         this.forceNextSync = false;
         setTimeout(() => {
           this.syncEntirePmsState({ force: shouldForce }).catch(() => {});
-        }, 150);
+        }, 100);
       }
     }
+    };
+
+    this.activeSyncPromise = executeBatch();
+    return this.activeSyncPromise;
   }
 
   private applyRestoredState(state: any, fromCloudHydration = true): void {
@@ -674,65 +711,98 @@ class SupabaseSyncService {
       const client = getSupabaseClient();
       if (!client) return false;
 
-      // 1. Fetch latest PMS snapshot state first (contains full users with usernames, adminData, roles, navigation, etc.)
-      const { data: snapData, error: sErr } = await client
+      // 1. Fetch latest PMS snapshot state AND dedicated property settings row
+      const { data: snapRows, error: sErr } = await client
         .from('pms_snapshots')
-        .select('state_payload, version, last_synced_at')
-        .eq('snapshot_key', 'current_pms_state')
-        .maybeSingle();
+        .select('snapshot_key, state_payload, version, last_synced_at')
+        .in('snapshot_key', ['current_pms_state', 'pms_property_settings']);
 
-      if (!sErr && snapData?.state_payload) {
+      const snapData = Array.isArray(snapRows)
+        ? snapRows.find((r: any) => r.snapshot_key === 'current_pms_state')
+        : null;
+      const settingsSnapRow = Array.isArray(snapRows)
+        ? snapRows.find((r: any) => r.snapshot_key === 'pms_property_settings')
+        : null;
+      const cloudDedicatedSettings = settingsSnapRow?.state_payload?.settings || settingsSnapRow?.state_payload || null;
+
+      if (!sErr && (snapData?.state_payload || cloudDedicatedSettings)) {
         const localLastSync = typeof window !== 'undefined' ? localStorage.getItem('pms_supabase_last_sync') : null;
-        const cloudLastSync = snapData.last_synced_at;
+        const cloudLastSync = snapData?.last_synced_at || settingsSnapRow?.last_synced_at;
         const localState = pmsService.getState();
         const persistedSettings = loadPersistedSettings();
         const localSettingsUpdatedAt = persistedSettings?.updatedAt || localState?.settings?.updatedAt || (typeof window !== 'undefined' ? localStorage.getItem('pms_settings_last_saved_at') : '') || '';
-        const remoteSettingsUpdatedAt = snapData.state_payload?.settings?.updatedAt || '';
+        const snapSettingsUpdatedAt = snapData?.state_payload?.settings?.updatedAt || '';
+        const dedicatedSettingsUpdatedAt = cloudDedicatedSettings?.updatedAt || settingsSnapRow?.last_synced_at || '';
+
+        // Pick the newest cloud settings between pms_property_settings and current_pms_state
+        const newestCloudSettings = (cloudDedicatedSettings && (!snapSettingsUpdatedAt || dedicatedSettingsUpdatedAt >= snapSettingsUpdatedAt))
+          ? { ...(snapData?.state_payload?.settings || {}), ...cloudDedicatedSettings }
+          : (snapData?.state_payload?.settings || cloudDedicatedSettings);
+        const remoteSettingsUpdatedAt = newestCloudSettings?.updatedAt || dedicatedSettingsUpdatedAt || snapSettingsUpdatedAt || '';
+
         const localSettingsAreNewer = Boolean(localSettingsUpdatedAt && (!remoteSettingsUpdatedAt || localSettingsUpdatedAt >= remoteSettingsUpdatedAt));
         const localHasData = (Array.isArray(localState?.reservations) && localState.reservations.length > 0) || Boolean(localSettingsUpdatedAt);
-        const isCleanStateActive = Boolean(persistedSettings?.isOnboardedCleanSlate || localState?.settings?.isOnboardedCleanSlate) || (typeof window !== 'undefined' && (
+        const isCleanStateActive = Boolean(
+          persistedSettings?.isOnboardedCleanSlate ||
+          localState?.settings?.isOnboardedCleanSlate ||
+          newestCloudSettings?.isOnboardedCleanSlate
+        ) || (typeof window !== 'undefined' && (
           localStorage.getItem('pms_clean_state_active') === 'true' ||
           localStorage.getItem('cculb_clean_state_v1') === 'true'
         ));
 
-        if (isCleanStateActive) {
-          // Clean state or onboarded property is active: only restore if remote snapshot itself is a strictly newer onboarded state
-          if (remoteSettingsUpdatedAt && localSettingsUpdatedAt && remoteSettingsUpdatedAt > localSettingsUpdatedAt) {
-            this.applyRestoredState(snapData.state_payload, true);
+        // Ensure snapData payload always carries the newest cloud settings before any comparison or restore
+        const mergedCloudPayload = snapData?.state_payload
+          ? {
+              ...snapData.state_payload,
+              settings: newestCloudSettings || snapData.state_payload.settings,
+              resortName: newestCloudSettings?.resortName || snapData.state_payload.resortName,
+            }
+          : null;
+
+        if (isCleanStateActive && mergedCloudPayload) {
+          if (remoteSettingsUpdatedAt && (!localSettingsUpdatedAt || remoteSettingsUpdatedAt > localSettingsUpdatedAt)) {
+            this.applyRestoredState(mergedCloudPayload, true);
           } else {
-            const remoteHasOldBookings = Array.isArray(snapData.state_payload?.reservations) && snapData.state_payload.reservations.length > 0;
+            const remoteHasOldBookings = Array.isArray(mergedCloudPayload?.reservations) && mergedCloudPayload.reservations.length > 0 && Boolean(persistedSettings?.isOnboardedCleanSlate || localState?.settings?.isOnboardedCleanSlate);
             const currentResortName = persistedSettings?.resortName || localState?.settings?.resortName;
-            const remoteSettingsMismatch = snapData.state_payload?.settings?.resortName !== currentResortName;
+            const remoteSettingsMismatch = mergedCloudPayload?.settings?.resortName !== currentResortName;
             if (remoteHasOldBookings || remoteSettingsMismatch || localSettingsAreNewer) {
-              this.syncEntirePmsState({ force: true }).catch(() => {});
+              this.syncSettingsImmediately(persistedSettings || localState?.settings).catch(() => {});
             }
           }
-        } else {
-          // Only overwrite local database if local has no data or cloud is strictly newer
-          if (!localHasData || (cloudLastSync && (!localLastSync || cloudLastSync > localLastSync))) {
+        } else if (mergedCloudPayload) {
+          if (!localHasData || (cloudLastSync && (!localLastSync || cloudLastSync > localLastSync)) || (remoteSettingsUpdatedAt && remoteSettingsUpdatedAt > localSettingsUpdatedAt)) {
             const payloadToApply = localSettingsAreNewer
               ? {
-                  ...snapData.state_payload,
+                  ...mergedCloudPayload,
                   settings: {
-                    ...(snapData.state_payload?.settings || {}),
+                    ...(mergedCloudPayload?.settings || {}),
                     ...(localState?.settings || {}),
                     ...(persistedSettings || {})
                   }
                 }
-              : snapData.state_payload;
+              : mergedCloudPayload;
             this.applyRestoredState(payloadToApply, true);
           }
-          // If local property settings were saved more recently than the cloud snapshot, push them to cloud immediately
           if (localSettingsAreNewer && (
-            snapData.state_payload?.settings?.resortName !== (persistedSettings?.resortName || localState?.settings?.resortName) ||
-            snapData.state_payload?.settings?.updatedAt !== localSettingsUpdatedAt
+            mergedCloudPayload?.settings?.resortName !== (persistedSettings?.resortName || localState?.settings?.resortName) ||
+            mergedCloudPayload?.settings?.updatedAt !== localSettingsUpdatedAt
           )) {
-            this.syncEntirePmsState({ force: true }).catch(() => {});
+            this.syncSettingsImmediately(persistedSettings || localState?.settings).catch(() => {});
+          }
+        } else if (cloudDedicatedSettings) {
+          // Only dedicated settings row exists or was updated
+          if (!localSettingsAreNewer) {
+            savePersistedSettings(cloudDedicatedSettings);
+            this.applyRestoredState({ ...localState, settings: { ...localState.settings, ...cloudDedicatedSettings } }, true);
+          } else {
+            this.syncSettingsImmediately(persistedSettings || localState?.settings).catch(() => {});
           }
         }
-        if (snapData.last_synced_at) {
-          this.currentStatus.lastSyncedAt = snapData.last_synced_at;
-          this.currentStatus.snapshotVersion = snapData.version || 1;
+        if (cloudLastSync) {
+          this.currentStatus.lastSyncedAt = cloudLastSync;
+          this.currentStatus.snapshotVersion = snapData?.version || 1;
         }
       }
 

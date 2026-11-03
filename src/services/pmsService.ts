@@ -779,11 +779,13 @@ export const pmsService = {
       }));
     }
 
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem('pms_clean_state_active', 'true');
-      localStorage.setItem('cculb_clean_state_v1', 'true');
-      localStorage.setItem('pms_settings_last_saved_at', nowIso);
-    }
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('pms_clean_state_active', 'true');
+        localStorage.setItem('cculb_clean_state_v1', 'true');
+        localStorage.setItem('pms_settings_last_saved_at', nowIso);
+      }
+    } catch {}
 
     savePersistedSettings(state.settings);
     saveDatabase(state);
@@ -791,7 +793,7 @@ export const pmsService = {
 
     try {
       import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
-        supabaseSyncService.syncEntirePmsState({ force: true }).catch(() => {});
+        supabaseSyncService.syncSettingsImmediately(state.settings).catch(() => {});
       }).catch(() => {});
       import('./realtimeSyncService.ts').then(({ realtimeSyncService }) => {
         realtimeSyncService.broadcastState(state, `Provisioned New Property: ${config.resortName}`);
@@ -6128,17 +6130,19 @@ export const pmsService = {
       ...updates,
       updatedAt: nowIso
     };
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem('pms_settings_last_saved_at', nowIso);
-    }
     savePersistedSettings(state.settings);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem('pms_settings_last_saved_at', nowIso);
+      }
+    } catch {}
     saveDatabase(state);
     this.logAudit('Updated System Settings', 'Settings', 'SYSTEM', undefined, JSON.stringify({ ...updates, logoUrl: updates.logoUrl ? '[Logo Updated]' : undefined }));
     notify();
 
     try {
       import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
-        supabaseSyncService.syncEntirePmsState({ force: true }).catch(err => {
+        supabaseSyncService.syncSettingsImmediately(state.settings).catch(err => {
           console.warn('[Supabase] Immediate settings sync notice:', err?.message || err);
         });
       }).catch(() => {});
@@ -6371,141 +6375,155 @@ export const pmsService = {
       throw new Error('Invalid backup file: PMS core entities missing (rooms, reservations, roomTypes).');
     }
 
-    const previousSettings = state.settings ? { ...state.settings } : null;
-    const persistedLocalSettings = loadPersistedSettings();
-
-    // Replace state with deep merge of defaults and parsed data
-    state = {
-      ...getInitialDatabase(),
-      ...pmsData
-    };
-
-    // If hydrating from cloud snapshot, never let an older cloud snapshot overwrite newer local property settings
     if (isCloudHydration) {
-      const localCandidate = (persistedLocalSettings?.updatedAt && (!previousSettings?.updatedAt || persistedLocalSettings.updatedAt >= previousSettings.updatedAt))
-        ? { ...previousSettings, ...persistedLocalSettings } as SystemSetting
-        : previousSettings;
-      const localUpdatedAt = localCandidate?.updatedAt || '';
-      const remoteUpdatedAt = pmsData.settings?.updatedAt || '';
+      isApplyingRemoteUpdate = true;
+    }
 
-      if (localCandidate && localUpdatedAt && (!remoteUpdatedAt || localUpdatedAt > remoteUpdatedAt)) {
+    try {
+      const previousSettings = state.settings ? { ...state.settings } : null;
+      const persistedLocalSettings = loadPersistedSettings();
+
+      // Replace state with deep merge of defaults and parsed data
+      state = {
+        ...getInitialDatabase(),
+        ...pmsData
+      };
+
+      // If hydrating from cloud snapshot, never let an older cloud snapshot overwrite newer local property settings
+      if (isCloudHydration) {
+        const localCandidate = (persistedLocalSettings?.updatedAt && (!previousSettings?.updatedAt || persistedLocalSettings.updatedAt >= previousSettings.updatedAt))
+          ? { ...previousSettings, ...persistedLocalSettings } as SystemSetting
+          : previousSettings;
+        const localUpdatedAt = localCandidate?.updatedAt || '';
+        const remoteUpdatedAt = pmsData.settings?.updatedAt || '';
+
+        if (localCandidate && localUpdatedAt && (!remoteUpdatedAt || localUpdatedAt > remoteUpdatedAt)) {
+          state.settings = {
+            ...(state.settings || {}),
+            ...localCandidate
+          };
+        }
+      } else if (state.settings) {
+        // Explicit manual restore from .bak file: stamp updatedAt so restored settings persist
         state.settings = {
-          ...(state.settings || {}),
-          ...localCandidate
+          ...state.settings,
+          updatedAt: new Date().toISOString()
         };
       }
-    } else if (state.settings) {
-      // Explicit manual restore from .bak file: stamp updatedAt so restored settings persist
-      state.settings = {
-        ...state.settings,
-        updatedAt: new Date().toISOString()
-      };
-    }
 
-    // Guarantee pending arrivals for current business date after backup restore (skip if property was onboarded as clean slate)
-    const curBiz = state.settings?.currentBusinessDate || getTodayString();
-    if (!state.settings) {
-      state.settings = getInitialDatabase().settings;
-    }
-    if (!state.settings.currentBusinessDate || state.settings.currentBusinessDate < '2026-09-01' || state.settings.currentBusinessDate > '2028-01-01') {
-      state.settings.currentBusinessDate = curBiz;
-    }
-    if (!state.settings.isOnboardedCleanSlate) {
-      const confirmedRestored = (state.reservations || []).filter(
-        r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
-      );
-      const todayArrivals = confirmedRestored.filter(r => r.arrivalDate === curBiz);
-      if (todayArrivals.length === 0) {
-        if (confirmedRestored.length >= 2) {
-          // Realign restored bookings so at least 2-3 are pending arrivals for today
-          confirmedRestored.forEach((r, idx) => {
-            const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
-            r.arrivalDate = getOffsetDate(curBiz, offset);
-            r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
-            r.updatedAt = new Date().toISOString();
-          });
+      // Guarantee pending arrivals for current business date after backup restore (skip if property was onboarded as clean slate)
+      const curBiz = state.settings?.currentBusinessDate || getTodayString();
+      if (!state.settings) {
+        state.settings = getInitialDatabase().settings;
+      }
+      if (!state.settings.currentBusinessDate || state.settings.currentBusinessDate < '2026-09-01' || state.settings.currentBusinessDate > '2028-01-01') {
+        state.settings.currentBusinessDate = curBiz;
+      }
+      if (!state.settings.isOnboardedCleanSlate) {
+        const confirmedRestored = (state.reservations || []).filter(
+          r => r.status === 'Confirmed' || r.status === 'Unconfirmed' || (r.status as string) === 'Pending'
+        );
+        const todayArrivals = confirmedRestored.filter(r => r.arrivalDate === curBiz);
+        if (todayArrivals.length === 0) {
+          if (confirmedRestored.length >= 2) {
+            // Realign restored bookings so at least 2-3 are pending arrivals for today
+            confirmedRestored.forEach((r, idx) => {
+              const offset = idx < 3 ? 0 : (idx === 3 ? 1 : 2);
+              r.arrivalDate = getOffsetDate(curBiz, offset);
+              r.departureDate = getOffsetDate(r.arrivalDate, 2 + (idx % 2));
+              r.updatedAt = new Date().toISOString();
+            });
+          }
         }
       }
-    }
 
-    // Restore auxiliary collections
-    if (payload.housekeeping) {
-      try {
-        localStorage.setItem('cculb_pms_housekeeping_v1', JSON.stringify(payload.housekeeping));
-      } catch (e) {
-        console.warn('Failed restoring housekeeping state', e);
+      // Restore auxiliary collections
+      if (payload.housekeeping) {
+        try {
+          localStorage.setItem('cculb_pms_housekeeping_v1', JSON.stringify(payload.housekeeping));
+        } catch (e) {
+          console.warn('Failed restoring housekeeping state', e);
+        }
+      }
+
+      if (payload.salesMarketing) {
+        try {
+          localStorage.setItem('cculb_sales_marketing_v1', JSON.stringify(payload.salesMarketing));
+        } catch (e) {
+          console.warn('Failed restoring sales marketing state', e);
+        }
+      }
+
+      if (payload.rbac) {
+        try {
+          if (payload.rbac.roles) localStorage.setItem('cculb_roles_v1', JSON.stringify(payload.rbac.roles));
+          if (payload.rbac.users) localStorage.setItem('cculb_rbac_users_v1', JSON.stringify(payload.rbac.users));
+          if (payload.rbac.approvalRules) localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(payload.rbac.approvalRules));
+          if (payload.rbac.reportRoleConfig) localStorage.setItem('cculb_report_role_config_v2', JSON.stringify(payload.rbac.reportRoleConfig));
+          if (payload.rbac.credentials) localStorage.setItem('cculb_rbac_creds_v1', JSON.stringify(payload.rbac.credentials));
+        } catch (e) {
+          console.warn('Failed restoring RBAC state', e);
+        }
+      }
+
+      if (!isCloudHydration) {
+        // Clear clean state flags from localStorage so manually restored operations remain active
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.removeItem('pms_clean_state_active');
+            localStorage.removeItem('cculb_clean_state_v1');
+            localStorage.removeItem('cculb_accounting_reset_v1');
+            localStorage.removeItem('cculb_cashbank_reset_v1');
+          }
+        } catch {}
+      }
+
+      savePersistedSettings(state.settings);
+      saveDatabase(state);
+      notify();
+
+      if (!isCloudHydration) {
+        // Trigger immediate cloud synchronization of the manually restored state to Supabase
+        try {
+          import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
+            supabaseSyncService.syncSettingsImmediately(state.settings).catch(err => {
+              console.warn('[Supabase] Sync notice for restored state:', err?.message || err);
+            });
+          }).catch(() => {});
+        } catch {}
+      }
+
+      const roomsCount = (state.rooms || []).length;
+      const resCount = (state.reservations || []).length;
+      const foliosCount = (state.folios || []).length;
+      const guestsCount = (state.guests || []).length;
+      const glAccountsCount = (state.glAccounts || []).length;
+      const invoicesCount = (state.invoices || []).length;
+
+      if (!isCloudHydration) {
+        this.logAudit('Restored Full Backup', 'Settings', 'MANUAL_RESTORE', undefined, `Restored database snapshot created at ${payload.metadata?.exportedAt || 'Unknown'}`);
+        this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios) and synced to Supabase Cloud.`);
+      }
+
+      return {
+        success: true,
+        message: 'Database backup restored successfully into active local state & synced to Supabase Cloud.',
+        details: {
+          rooms: roomsCount,
+          reservations: resCount,
+          guests: guestsCount,
+          folios: foliosCount,
+          glAccounts: glAccountsCount,
+          invoices: invoicesCount
+        }
+      };
+    } finally {
+      if (isCloudHydration) {
+        setTimeout(() => {
+          isApplyingRemoteUpdate = false;
+        }, 150);
       }
     }
-
-    if (payload.salesMarketing) {
-      try {
-        localStorage.setItem('cculb_sales_marketing_v1', JSON.stringify(payload.salesMarketing));
-      } catch (e) {
-        console.warn('Failed restoring sales marketing state', e);
-      }
-    }
-
-    if (payload.rbac) {
-      try {
-        if (payload.rbac.roles) localStorage.setItem('cculb_roles_v1', JSON.stringify(payload.rbac.roles));
-        if (payload.rbac.users) localStorage.setItem('cculb_rbac_users_v1', JSON.stringify(payload.rbac.users));
-        if (payload.rbac.approvalRules) localStorage.setItem('cculb_approval_rules_v1', JSON.stringify(payload.rbac.approvalRules));
-        if (payload.rbac.reportRoleConfig) localStorage.setItem('cculb_report_role_config_v2', JSON.stringify(payload.rbac.reportRoleConfig));
-        if (payload.rbac.credentials) localStorage.setItem('cculb_rbac_creds_v1', JSON.stringify(payload.rbac.credentials));
-      } catch (e) {
-        console.warn('Failed restoring RBAC state', e);
-      }
-    }
-
-    if (!isCloudHydration) {
-      // Clear clean state flags from localStorage so manually restored operations remain active
-      if (typeof window !== 'undefined' && window.localStorage) {
-        localStorage.removeItem('pms_clean_state_active');
-        localStorage.removeItem('cculb_clean_state_v1');
-        localStorage.removeItem('cculb_accounting_reset_v1');
-        localStorage.removeItem('cculb_cashbank_reset_v1');
-      }
-    }
-
-    savePersistedSettings(state.settings);
-    saveDatabase(state);
-    notify();
-
-    if (!isCloudHydration) {
-      // Trigger immediate cloud synchronization of the manually restored state to Supabase
-      try {
-        import('./supabaseSyncService.ts').then(({ supabaseSyncService }) => {
-          supabaseSyncService.syncEntirePmsState().catch(err => {
-            console.warn('[Supabase] Sync notice for restored state:', err?.message || err);
-          });
-        }).catch(() => {});
-      } catch {}
-    }
-
-    const roomsCount = (state.rooms || []).length;
-    const resCount = (state.reservations || []).length;
-    const foliosCount = (state.folios || []).length;
-    const guestsCount = (state.guests || []).length;
-    const glAccountsCount = (state.glAccounts || []).length;
-    const invoicesCount = (state.invoices || []).length;
-
-    if (!isCloudHydration) {
-      this.logAudit('Restored Full Backup', 'Settings', 'MANUAL_RESTORE', undefined, `Restored database snapshot created at ${payload.metadata?.exportedAt || 'Unknown'}`);
-      this.addAlert('success', 'Manual Data Backup Restored', `Database restored successfully (${roomsCount} rooms, ${resCount} reservations, ${foliosCount} folios) and synced to Supabase Cloud.`);
-    }
-
-    return {
-      success: true,
-      message: 'Database backup restored successfully into active local state & synced to Supabase Cloud.',
-      details: {
-        rooms: roomsCount,
-        reservations: resCount,
-        guests: guestsCount,
-        folios: foliosCount,
-        glAccounts: glAccountsCount,
-        invoices: invoicesCount
-      }
-    };
   },
 
   reanchorArrivalsToToday(targetDate?: string): { count: number; businessDate: string } {

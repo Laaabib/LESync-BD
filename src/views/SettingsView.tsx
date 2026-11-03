@@ -17,7 +17,7 @@ interface SettingsProps {
 }
 
 function optimizeLogoDataUrl(rawDataUrl: string): Promise<string> {
-  if (!rawDataUrl || !rawDataUrl.startsWith('data:image/') || rawDataUrl.length < 35000) {
+  if (!rawDataUrl || !rawDataUrl.startsWith('data:image/') || rawDataUrl.length < 5000) {
     return Promise.resolve(rawDataUrl || '');
   }
   return new Promise((resolve) => {
@@ -25,8 +25,8 @@ function optimizeLogoDataUrl(rawDataUrl: string): Promise<string> {
     img.onerror = () => resolve(rawDataUrl);
     img.onload = () => {
       try {
-        const maxWidth = 360;
-        const maxHeight = 140;
+        const maxWidth = 280;
+        const maxHeight = 110;
         let width = img.width || maxWidth;
         let height = img.height || maxHeight;
         if (width > maxWidth || height > maxHeight) {
@@ -45,7 +45,7 @@ function optimizeLogoDataUrl(rawDataUrl: string): Promise<string> {
         ctx.clearRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
         let compressed = canvas.toDataURL('image/png');
-        if (compressed.length > 45000) {
+        if (compressed.length > 25000) {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
@@ -175,13 +175,31 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   const [savedMessage, setSavedMessage] = useState('');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const lastHydratedSettingsRef = useRef<string>(
-    `${db.settings?.updatedAt || ''}:${db.settings?.resortName || ''}`
-  );
+  const isDirtyRef = useRef<boolean>(false);
+
+  const buildSettingsSignature = (s: any) =>
+    [
+      s?.updatedAt || '',
+      s?.resortName || '',
+      s?.address || '',
+      s?.phone || '',
+      s?.email || '',
+      s?.website || '',
+      s?.currencySymbol || '',
+      s?.binNumber || '',
+      s?.tradeLicense || '',
+      (s?.logoUrl || '').slice(0, 64),
+      s?.vatRate ?? s?.taxRatePercent ?? '',
+      s?.serviceChargeRate ?? s?.serviceChargePercent ?? '',
+      s?.checkInTime || '',
+      s?.checkOutTime || '',
+    ].join('|');
+
+  const lastHydratedSettingsRef = useRef<string>(buildSettingsSignature(db.settings));
 
   // Automatically downscale any oversized existing base64 logo so it never exceeds localStorage or cloud payload limits
   useEffect(() => {
-    if (logoUrl && logoUrl.startsWith('data:image/') && logoUrl.length > 45000) {
+    if (logoUrl && logoUrl.startsWith('data:image/') && logoUrl.length > 25000) {
       optimizeLogoDataUrl(logoUrl).then((compact) => {
         if (compact && compact.length < logoUrl.length) {
           setLogoUrl(compact);
@@ -190,13 +208,16 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
     }
   }, [logoUrl]);
 
-  // Keep form fields synchronized when db.settings updates via cloud hydration or provisioning
+  // Keep form fields synchronized when db.settings updates via cloud hydration or provisioning, unless user is actively editing
   useEffect(() => {
     const s = db.settings;
     if (!s) return;
-    const signature = `${s.updatedAt || ''}:${s.resortName || ''}`;
+    const signature = buildSettingsSignature(s);
     if (signature !== lastHydratedSettingsRef.current) {
       lastHydratedSettingsRef.current = signature;
+      if (isDirtyRef.current) {
+        return;
+      }
       setResortName(s.resortName || 'LESync Resort & Convention Hall');
       setAddress(s.address || 'Joypara, Dohar, Dhaka-1330, Bangladesh');
       setPhone(s.phone || '+8801330480273');
@@ -239,21 +260,27 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isOwner) {
-      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to modify system-wide configuration parameters.'
+      });
       return;
     }
 
     setIsSavingSettings(true);
     setBackupMessage(null);
+    setSavedMessage('');
     try {
       const optimizedLogo = await optimizeLogoDataUrl(logoUrl);
       if (optimizedLogo !== logoUrl) {
         setLogoUrl(optimizedLogo);
       }
 
+      isDirtyRef.current = false;
+
       // Save all parameters directly to pmsService and localStorage
       pmsService.updateSystemSettings({
-        resortName: resortName.trim(),
+        resortName: resortName.trim() || 'LESync Resort & Convention Hall',
         address: address.trim(),
         phone: phone.trim(),
         email: email.trim(),
@@ -291,12 +318,12 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
       });
 
       const updatedSettings = pmsService.getSettings();
-      lastHydratedSettingsRef.current = `${updatedSettings?.updatedAt || ''}:${updatedSettings?.resortName || ''}`;
+      lastHydratedSettingsRef.current = buildSettingsSignature(updatedSettings);
 
-      await cloudSqlSyncService.syncNow('System Settings Updated', { force: true });
+      await cloudSqlSyncService.syncSettingsImmediately(updatedSettings);
 
-      setSavedMessage('All resort settings, property logo, operational policies, tax rules, and numbering schemes saved and synced to cloud.');
-      setTimeout(() => setSavedMessage(''), 5000);
+      setSavedMessage('All resort property identities, logo, operational policies, tax rules, and numbering schemes saved and synced to cloud.');
+      setTimeout(() => setSavedMessage(''), 8000);
     } catch (err: any) {
       console.error('Failed to save system settings:', err);
       setBackupMessage({
@@ -311,70 +338,72 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
   const handleProvisionNewProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isOwner) {
-      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to provision a new property and clean all database records.'
+      });
       return;
     }
     if (!provResortName.trim()) {
-      alert('Please enter the New Property / Hotel Name.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Please enter the New Hotel / Resort Name before provisioning.'
+      });
       return;
     }
-    const modeLabel = provCleanMode === 'fresh_slate_starter_rooms'
-      ? 'Clean all guest stays & reset room inventory to 15 starter rooms'
-      : 'Clean all guest bookings, stays, folios, and invoices, and mark all existing rooms Vacant & Clean';
 
-    const confirmText = `⚠️ CONFIRM PROPERTY PROVISIONING\n\nAre you sure you want to provision "${provResortName}"?\n\nOperation:\n• ${modeLabel}\n• Set business date to: ${provBusinessDate}\n• All reports, folios, bills, and receipts will immediately display: "${provResortName}"\n\nThis action cannot be undone!`;
+    setIsSavingSettings(true);
+    setBackupMessage(null);
+    setProvSuccess('');
+    try {
+      const finalAddress = (provAddress || address).trim();
+      const finalPhone = (provPhone || phone).trim();
+      const finalEmail = (provEmail || email).trim();
+      const finalLogo = await optimizeLogoDataUrl(provLogoUrl || logoUrl);
 
-    if (window.confirm(confirmText)) {
-      setIsSavingSettings(true);
-      setBackupMessage(null);
-      try {
-        const finalAddress = (provAddress || address).trim();
-        const finalPhone = (provPhone || phone).trim();
-        const finalEmail = (provEmail || email).trim();
-        const finalLogo = await optimizeLogoDataUrl(provLogoUrl || logoUrl);
+      isDirtyRef.current = false;
 
-        pmsService.provisionNewProperty({
-          resortName: provResortName.trim(),
-          address: finalAddress,
-          phone: finalPhone,
-          email: finalEmail,
-          logoUrl: finalLogo,
-          binNumber: provBin.trim(),
-          tradeLicense: provLicense.trim(),
-          currencySymbol: provCurrency.trim() || '৳',
-          vatRate: Number(provVat),
-          serviceCharge: Number(provServiceCharge),
-          currentBusinessDate: provBusinessDate,
-          cleanMode: provCleanMode
-        });
+      pmsService.provisionNewProperty({
+        resortName: provResortName.trim(),
+        address: finalAddress,
+        phone: finalPhone,
+        email: finalEmail,
+        logoUrl: finalLogo,
+        binNumber: provBin.trim(),
+        tradeLicense: provLicense.trim(),
+        currencySymbol: provCurrency.trim() || '৳',
+        vatRate: Number(provVat),
+        serviceCharge: Number(provServiceCharge),
+        currentBusinessDate: provBusinessDate,
+        cleanMode: provCleanMode
+      });
 
-        setResortName(provResortName.trim());
-        setLogoUrl(finalLogo);
-        setAddress(finalAddress);
-        setPhone(finalPhone);
-        setEmail(finalEmail);
-        setBinNumber(provBin.trim());
-        setTradeLicense(provLicense.trim());
-        setCurrencySymbol(provCurrency.trim() || '৳');
-        setVatRate(Number(provVat));
-        setServiceCharge(Number(provServiceCharge));
+      setResortName(provResortName.trim());
+      setLogoUrl(finalLogo);
+      setAddress(finalAddress);
+      setPhone(finalPhone);
+      setEmail(finalEmail);
+      setBinNumber(provBin.trim());
+      setTradeLicense(provLicense.trim());
+      setCurrencySymbol(provCurrency.trim() || '৳');
+      setVatRate(Number(provVat));
+      setServiceCharge(Number(provServiceCharge));
 
-        const updatedSettings = pmsService.getSettings();
-        lastHydratedSettingsRef.current = `${updatedSettings?.updatedAt || ''}:${updatedSettings?.resortName || ''}`;
+      const updatedSettings = pmsService.getSettings();
+      lastHydratedSettingsRef.current = buildSettingsSignature(updatedSettings);
 
-        await cloudSqlSyncService.syncNow(`Provisioned New Property: ${provResortName.trim()}`, { force: true });
+      await cloudSqlSyncService.syncSettingsImmediately(updatedSettings);
 
-        setProvSuccess(`Property "${provResortName.trim()}" has been successfully provisioned and synced to the live cloud database! All previous guest records and invoices have been cleaned.`);
-        setTimeout(() => setProvSuccess(''), 10000);
-      } catch (err: any) {
-        console.error('Failed to provision new property:', err);
-        setBackupMessage({
-          type: 'error',
-          text: err?.message || 'An error occurred while provisioning the property.'
-        });
-      } finally {
-        setIsSavingSettings(false);
-      }
+      setProvSuccess(`Property "${provResortName.trim()}" has been successfully provisioned and synced to the live cloud database! All previous guest records and invoices have been cleaned.`);
+      setTimeout(() => setProvSuccess(''), 10000);
+    } catch (err: any) {
+      console.error('Failed to provision new property:', err);
+      setBackupMessage({
+        type: 'error',
+        text: err?.message || 'An error occurred while provisioning the property.'
+      });
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -383,7 +412,6 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
       const bakContent = pmsService.exportFullBakContent();
       const blob = new Blob([bakContent], { type: 'application/octet-stream;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const now = new Date();
       const backupFilename = pmsService.formatPropertyBackupFilename();
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute('href', url);
@@ -402,7 +430,10 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
 
   const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isOwner) {
-      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup files.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to restore database backup files.'
+      });
       return;
     }
     const files = e.target.files;
@@ -420,15 +451,14 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
           parsed = JSON.parse(content);
         }
 
-        if (window.confirm(`Restore database from backup file "${file.name}"? This will overwrite the current active data.`)) {
-          const result = pmsService.restoreFullBackupPayload(parsed);
-          await cloudSqlSyncService.syncNow('Restored from Settings File Upload');
-          setBackupMessage({
-            type: 'success',
-            text: `System restored successfully! (${result.details.rooms} rooms, ${result.details.reservations} reservations, ${result.details.folios} folios).`
-          });
-          setTimeout(() => setBackupMessage(null), 6000);
-        }
+        isDirtyRef.current = false;
+        const result = pmsService.restoreFullBackupPayload(parsed);
+        await cloudSqlSyncService.syncSettingsImmediately(pmsService.getSettings());
+        setBackupMessage({
+          type: 'success',
+          text: `System restored successfully! (${result.details.rooms} rooms, ${result.details.reservations} reservations, ${result.details.folios} folios).`
+        });
+        setTimeout(() => setBackupMessage(null), 6000);
       } catch (err: any) {
         setBackupMessage({ type: 'error', text: `Restore failed: ${err?.message || 'Invalid backup file'}` });
       }
@@ -437,29 +467,34 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
     if (restoreFileRef.current) restoreFileRef.current.value = '';
   };
 
-  const handleResetData = () => {
+  const handleResetData = async () => {
     if (!isOwner) {
-      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset database to clean state.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset database to clean state.'
+      });
       return;
     }
-    if (window.confirm('Reset database to clean state? All previous reservations, in-house stays, cancelled check-in rooms, folios, orders, and financial account transaction BDT balances will be permanently vanished and set to 0.00 BDT.')) {
-      pmsService.resetToCleanState();
-      window.location.reload();
-    }
+    isDirtyRef.current = false;
+    pmsService.resetToCleanState();
+    await cloudSqlSyncService.syncSettingsImmediately(pmsService.getSettings());
+    window.location.reload();
   };
 
-  const handleResetAllAccountsOnly = () => {
+  const handleResetAllAccountsOnly = async () => {
     if (!isOwner) {
-      alert('Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset all financial accounts.');
+      setBackupMessage({
+        type: 'error',
+        text: 'Access Denied: Only the root System Owner (Labib Zunaedy) is authorized to reset all financial accounts.'
+      });
       return;
     }
-    if (window.confirm('Reset all financial accounts? All General Ledger balances, journal vouchers, and transaction BDT amounts will be reset to 0.00 BDT, while preserving room inventory and staff logins.')) {
-      pmsService.resetAllAccountBalances();
-      setBackupMessage({ type: 'success', text: 'All account transaction balances, vouchers, and BDT amounts have been successfully reset to 0.00 BDT.' });
-      setTimeout(() => {
-        window.location.reload();
-      }, 800);
-    }
+    pmsService.resetAllAccountBalances();
+    await cloudSqlSyncService.syncSettingsImmediately(pmsService.getSettings());
+    setBackupMessage({ type: 'success', text: 'All account transaction balances, vouchers, and BDT amounts have been successfully reset to 0.00 BDT.' });
+    setTimeout(() => {
+      window.location.reload();
+    }, 800);
   };
 
   return (
@@ -590,7 +625,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                   <input
                     type="text"
                     value={resortName}
-                    onChange={(e) => setResortName(e.target.value)}
+                    onChange={(e) => { isDirtyRef.current = true; setResortName(e.target.value); }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs font-medium"
                     required
                   />
@@ -600,7 +635,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                   <input
                     type="text"
                     value={address}
-                    onChange={(e) => setAddress(e.target.value)}
+                    onChange={(e) => { isDirtyRef.current = true; setAddress(e.target.value); }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs"
                     required
                   />
@@ -611,7 +646,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="text"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setPhone(e.target.value); }}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs font-mono"
                     />
                   </div>
@@ -620,7 +655,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setEmail(e.target.value); }}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs"
                     />
                   </div>
@@ -631,7 +666,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="text"
                       value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setWebsite(e.target.value); }}
                       placeholder="e.g. www.lesyncresort.com"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs"
                     />
@@ -641,7 +676,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="text"
                       value={currencySymbol}
-                      onChange={(e) => setCurrencySymbol(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setCurrencySymbol(e.target.value); }}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs font-mono font-bold"
                     />
                   </div>
@@ -656,7 +691,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     {logoUrl && (
                       <button
                         type="button"
-                        onClick={() => setLogoUrl('')}
+                        onClick={() => { isDirtyRef.current = true; setLogoUrl(''); }}
                         className="text-rose-400 hover:text-rose-300 text-[10px] font-medium"
                       >
                         Remove Logo
@@ -677,7 +712,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                       <input
                         type="text"
                         value={logoUrl}
-                        onChange={(e) => setLogoUrl(e.target.value)}
+                        onChange={(e) => { isDirtyRef.current = true; setLogoUrl(e.target.value); }}
                         placeholder="Image URL or upload image file below"
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs font-mono"
                       />
@@ -691,6 +726,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
+                              isDirtyRef.current = true;
                               try {
                                 const compressed = await compressLogoImage(file);
                                 setLogoUrl(compressed);
@@ -716,7 +752,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="text"
                       value={binNumber}
-                      onChange={(e) => setBinNumber(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setBinNumber(e.target.value); }}
                       placeholder="e.g. 001928472-0102"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs font-mono"
                     />
@@ -726,7 +762,7 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
                     <input
                       type="text"
                       value={tradeLicense}
-                      onChange={(e) => setTradeLicense(e.target.value)}
+                      onChange={(e) => { isDirtyRef.current = true; setTradeLicense(e.target.value); }}
                       placeholder="e.g. CCU-2026-BD"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 text-xs font-mono"
                     />
@@ -1413,7 +1449,13 @@ export const SettingsView: React.FC<SettingsProps> = ({ initialTab = 'property',
             </fieldset>
 
             {isOwner && activeTab !== 'onboarding' && activeTab !== 'backup' && (
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-end gap-3">
+                {savedMessage && (
+                  <div className="px-3.5 py-2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-xl flex items-center space-x-2 text-xs font-semibold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{savedMessage}</span>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={isSavingSettings}

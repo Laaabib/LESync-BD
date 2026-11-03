@@ -421,6 +421,31 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
           }
         }
 
+        // Check dedicated pms_property_settings row so stale client syncs never overwrite newer settings
+        try {
+          const { data: existingSettingsRow } = await sb
+            .from('pms_snapshots')
+            .select('state_payload, last_synced_at')
+            .eq('snapshot_key', 'pms_property_settings')
+            .maybeSingle();
+          const cloudSettings = existingSettingsRow?.state_payload?.settings || existingSettingsRow?.state_payload;
+          const cloudTime = cloudSettings?.updatedAt || existingSettingsRow?.last_synced_at || '';
+          const incomingTime = fullState.settings?.updatedAt || '';
+          if (cloudSettings?.resortName && (!incomingTime || (cloudTime && cloudTime > incomingTime))) {
+            fullState.settings = { ...(fullState.settings || {}), ...cloudSettings };
+          } else if (incomingTime && fullState.settings?.resortName) {
+            await sb.from('pms_snapshots').upsert({
+              snapshot_key: 'pms_property_settings',
+              resort_name: fullState.settings.resortName,
+              business_date: fullState.settings.currentBusinessDate || new Date().toISOString().slice(0, 10),
+              state_payload: { settings: fullState.settings, updatedAt: incomingTime },
+              synced_by: syncedBy,
+              total_entities: 1,
+              last_synced_at: new Date().toISOString(),
+            }, { onConflict: 'snapshot_key' });
+          }
+        } catch {}
+
         const { data, error } = await sb
           .from('pms_snapshots')
           .upsert(
@@ -490,6 +515,48 @@ async function executeSyncEntirePmsState(fullState: SyncPayload, syncedBy = 'PMS
       .from(pmsSnapshots)
       .where(eq(pmsSnapshots.snapshotKey, 'current_pms_state'))
       .limit(1);
+
+    const [existingSettingsSnap] = await db
+      .select()
+      .from(pmsSnapshots)
+      .where(eq(pmsSnapshots.snapshotKey, 'pms_property_settings'))
+      .limit(1);
+
+    const existingCloudSettings = (existingSettingsSnap?.statePayload as any)?.settings || (existingSettingsSnap?.statePayload as any);
+    const existingCloudSettingsTime = existingCloudSettings?.updatedAt || (existing?.statePayload as any)?.settings?.updatedAt || '';
+    const incomingSettingsTime = fullState.settings?.updatedAt || '';
+
+    if (existingCloudSettings?.resortName && (!incomingSettingsTime || (existingCloudSettingsTime && existingCloudSettingsTime > incomingSettingsTime))) {
+      fullState.settings = {
+        ...(fullState.settings || {}),
+        ...existingCloudSettings,
+      };
+    } else if (incomingSettingsTime && fullState.settings?.resortName) {
+      await db
+        .insert(pmsSnapshots)
+        .values({
+          snapshotKey: 'pms_property_settings',
+          resortName: fullState.settings.resortName,
+          businessDate: fullState.settings.currentBusinessDate || '2026-08-31',
+          statePayload: { settings: fullState.settings, updatedAt: incomingSettingsTime },
+          version: (existingSettingsSnap?.version || 0) + 1,
+          syncedBy,
+          totalEntities: 1,
+          lastSyncedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: pmsSnapshots.snapshotKey,
+          set: {
+            resortName: fullState.settings.resortName,
+            businessDate: fullState.settings.currentBusinessDate || '2026-08-31',
+            statePayload: { settings: fullState.settings, updatedAt: incomingSettingsTime },
+            version: (existingSettingsSnap?.version || 0) + 1,
+            syncedBy,
+            totalEntities: 1,
+            lastSyncedAt: new Date(),
+          },
+        });
+    }
 
     const nextVersion = (existing?.version || 0) + 1;
 
@@ -1458,22 +1525,34 @@ export async function loadLatestPmsSnapshot() {
       try {
         const { createClient } = await import('@supabase/supabase-js');
         const sb = createClient(sbUrl, sbKey);
-        const { data, error } = await sb
+        const { data: rows, error } = await sb
           .from('pms_snapshots')
           .select('snapshot_key, version, resort_name, business_date, total_entities, last_synced_at, state_payload')
-          .eq('snapshot_key', 'current_pms_state')
-          .maybeSingle();
+          .in('snapshot_key', ['current_pms_state', 'pms_property_settings']);
 
-        if (!error && data && data.state_payload) {
-          return {
-            version: data.version || 1,
-            resortName: data.resort_name,
-            businessDate: data.business_date,
-            totalEntities: data.total_entities,
-            lastSyncedAt: data.last_synced_at,
-            state: data.state_payload,
-            pmsState: data.state_payload,
-          };
+        if (!error && Array.isArray(rows) && rows.length > 0) {
+          const data = rows.find((r: any) => r.snapshot_key === 'current_pms_state');
+          const settingsRow = rows.find((r: any) => r.snapshot_key === 'pms_property_settings');
+          if (data && data.state_payload) {
+            const payload = { ...data.state_payload };
+            const dedicatedSettings = settingsRow?.state_payload?.settings || settingsRow?.state_payload;
+            if (dedicatedSettings?.resortName) {
+              const dedicatedTime = dedicatedSettings.updatedAt || settingsRow?.last_synced_at || '';
+              const mainTime = payload.settings?.updatedAt || '';
+              if (!mainTime || (dedicatedTime && dedicatedTime >= mainTime)) {
+                payload.settings = { ...(payload.settings || {}), ...dedicatedSettings };
+              }
+            }
+            return {
+              version: data.version || 1,
+              resortName: payload.settings?.resortName || data.resort_name,
+              businessDate: payload.settings?.currentBusinessDate || data.business_date,
+              totalEntities: data.total_entities,
+              lastSyncedAt: data.last_synced_at,
+              state: payload,
+              pmsState: payload,
+            };
+          }
         }
       } catch (err: any) {
         console.warn('Supabase REST loadLatestPmsSnapshot notice:', err?.message || err);
@@ -1491,14 +1570,30 @@ export async function loadLatestPmsSnapshot() {
 
     if (!snapshot) return null;
 
+    const [settingsSnap] = await db
+      .select()
+      .from(pmsSnapshots)
+      .where(eq(pmsSnapshots.snapshotKey, 'pms_property_settings'))
+      .limit(1);
+
+    const payload = { ...(snapshot.statePayload as any) };
+    const dedicatedSettings = (settingsSnap?.statePayload as any)?.settings || (settingsSnap?.statePayload as any);
+    if (dedicatedSettings?.resortName) {
+      const dedicatedTime = dedicatedSettings.updatedAt || '';
+      const mainTime = payload.settings?.updatedAt || '';
+      if (!mainTime || (dedicatedTime && dedicatedTime >= mainTime)) {
+        payload.settings = { ...(payload.settings || {}), ...dedicatedSettings };
+      }
+    }
+
     return {
       version: snapshot.version,
-      resortName: snapshot.resortName,
-      businessDate: snapshot.businessDate,
+      resortName: payload.settings?.resortName || snapshot.resortName,
+      businessDate: payload.settings?.currentBusinessDate || snapshot.businessDate,
       totalEntities: snapshot.totalEntities,
       lastSyncedAt: snapshot.lastSyncedAt,
-      state: snapshot.statePayload,
-      pmsState: snapshot.statePayload,
+      state: payload,
+      pmsState: payload,
     };
   } catch (error) {
     console.warn('Failed to load latest PMS snapshot from PostgreSQL:', error);

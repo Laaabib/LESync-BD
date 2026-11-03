@@ -3534,39 +3534,74 @@ export function createCleanDatabase(): PmsDatabaseState {
 export const SETTINGS_STORAGE_KEY = 'pms_property_settings_v1';
 export const SETTINGS_IDENTITY_KEY = 'pms_property_identity_v1';
 
+function pruneStorageForQuotaRecovery(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const rawDb = localStorage.getItem(STORAGE_KEY);
+    if (rawDb) {
+      const parsed = JSON.parse(rawDb);
+      if (parsed && typeof parsed === 'object') {
+        parsed.auditLogs = [];
+        parsed.auditTrail = [];
+        parsed.stockLedgers = [];
+        parsed.menuPriceHistories = [];
+        parsed.guestDocuments = [];
+        if (parsed.settings?.logoUrl && parsed.settings.logoUrl.length > 25000) {
+          parsed.settings = { ...parsed.settings, logoUrl: '' };
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+      }
+    }
+  } catch {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+  }
+}
+
 export function savePersistedSettings(settings: SystemSetting) {
   if (!settings || typeof settings !== 'object') return;
+  if (typeof window === 'undefined' || !window.localStorage) return;
+
+  // Never allow an un-timestamped or older settings object to overwrite a newer user-saved property identity
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      // Never allow an un-timestamped or older settings object to overwrite a newer user-saved property identity
-      const existingRaw = localStorage.getItem(SETTINGS_IDENTITY_KEY) || localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (existingRaw) {
-        try {
-          const existing = JSON.parse(existingRaw);
-          if (existing?.updatedAt && (!settings.updatedAt || settings.updatedAt < existing.updatedAt)) {
-            return;
-          }
-        } catch {}
+    const existingRaw = localStorage.getItem(SETTINGS_IDENTITY_KEY) || localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (existingRaw) {
+      const existing = JSON.parse(existingRaw);
+      if (existing?.updatedAt && (!settings.updatedAt || settings.updatedAt < existing.updatedAt)) {
+        return;
       }
-
-      // 1. Always save lightweight identity fields (<2KB) first so quota limits can NEVER block property identity persistence
-      const { logoUrl, ...identityWithoutLogo } = settings;
-      const lightweightPayload = (logoUrl && logoUrl.length < 45000)
-        ? settings
-        : identityWithoutLogo;
-      localStorage.setItem(SETTINGS_IDENTITY_KEY, JSON.stringify(lightweightPayload));
-
-      // 2. Save full settings (including logo) to primary key
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     }
+  } catch {}
+
+  const writeKeys = () => {
+    const { logoUrl, ...identityWithoutLogo } = settings;
+    const lightweightPayload = (logoUrl && logoUrl.length < 40000)
+      ? settings
+      : identityWithoutLogo;
+    localStorage.setItem(SETTINGS_IDENTITY_KEY, JSON.stringify(lightweightPayload));
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    if (settings.updatedAt) {
+      localStorage.setItem('pms_settings_last_saved_at', settings.updatedAt);
+    }
+  };
+
+  try {
+    writeKeys();
   } catch (e) {
-    console.warn('Unable to persist full property settings to primary localStorage key, retrying after pruning logs:', e);
+    console.warn('localStorage quota reached while saving settings; pruning database logs and retrying:', e);
+    pruneStorageForQuotaRecovery();
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
+      writeKeys();
+    } catch {
+      try {
         const { logoUrl, ...identityWithoutLogo } = settings;
         localStorage.setItem(SETTINGS_IDENTITY_KEY, JSON.stringify(identityWithoutLogo));
-      }
-    } catch {}
+        if (settings.updatedAt) {
+          localStorage.setItem('pms_settings_last_saved_at', settings.updatedAt);
+        }
+      } catch {}
+    }
   }
 }
 
@@ -3624,18 +3659,17 @@ export function saveDatabase(state: PmsDatabaseState) {
       if (typeof window !== 'undefined' && window.localStorage) {
         const prunedState: PmsDatabaseState = {
           ...state,
-          auditLogs: Array.isArray(state.auditLogs) ? state.auditLogs.slice(0, 40) : [],
+          auditLogs: Array.isArray(state.auditLogs) ? state.auditLogs.slice(0, 30) : [],
           auditTrail: [],
+          stockLedgers: [],
+          menuPriceHistories: [],
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(prunedState));
-        console.info('Successfully saved PMS database with pruned audit history.');
       }
     } catch (e2) {
-      console.warn('Pruned retry also encountered storage limit:', e2);
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
-          // Offload oversized logoUrl to SETTINGS_STORAGE_KEY so main DB snapshot fits comfortably in localStorage
-          const compactSettings = state.settings?.logoUrl && state.settings.logoUrl.length > 50000
+          const compactSettings = state.settings?.logoUrl && state.settings.logoUrl.length > 35000
             ? { ...state.settings, logoUrl: '' }
             : state.settings;
           const minimalState: PmsDatabaseState = {
@@ -3643,14 +3677,18 @@ export function saveDatabase(state: PmsDatabaseState) {
             settings: compactSettings,
             auditLogs: [],
             auditTrail: [],
+            stockLedgers: [],
+            menuPriceHistories: [],
             guestDocuments: [],
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(minimalState));
-          console.info('Successfully saved PMS database in lightweight emergency profile.');
         }
       } catch (e3) {
         console.error('All localStorage save attempts failed:', e3);
       }
+    }
+    if (state?.settings) {
+      savePersistedSettings(state.settings);
     }
   }
 }
